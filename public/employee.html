@@ -1,0 +1,670 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>My Agent – Company Agents</title>
+  <style>
+    /* Default styles from your original file - truncated for brevity */
+    body{margin:0;font-family:sans-serif;background:#0e0e0e;color:#eee;display:flex;flex-direction:column;height:100vh}
+    .navbar{background:#222;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #09f;flex-shrink:0}
+    .navbar-brand{color:#eee;text-decoration:none;font-weight:bold;font-size:1.2em}
+    .navbar-links { display: flex; align-items: center; gap: 15px; }
+    .navbar-links span.navbar-user { color: #aaa; font-size: 0.9em; }
+    .navbar-links a{color:#ccc;text-decoration:none;font-size:.9em}
+    .navbar-links a:hover{color:#fff}
+    .logout-btn{background:none;border:none;color:#f66;cursor:pointer;font-size:.9em;padding:0}
+    .logout-btn:hover{color:#f88}
+    .content{flex:1;display:flex;overflow:hidden}
+    .tasks-panel{width:300px;background:#181818;border-right:1px solid #333;display:flex;flex-direction:column;flex-shrink:0}
+    .tasks-header{padding:10px 15px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+    .tasks-header h2{margin:0;font-size:1em;color:#09f}
+    .task-list{flex:1;overflow-y:auto}
+    .task-item{padding:10px 15px;border-bottom:1px solid #222;cursor:pointer; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+    .task-item:hover,.task-item.active{background:#252525}
+    .task-item.update-requested { border-left: 3px solid #f90; background-color: #332a1a; font-weight: bold;}
+    .task-item.update-requested::after { content: ' !'; color: #f90; position: absolute; right: 15px; top: 50%; transform: translateY(-50%); font-size: 1.1em; }
+    .task-item span.status-icon { font-size: 0.8em; margin-left: 5px; display: inline-block; }
+    .task-actions-update-area {padding: 10px;border-top: 1px solid #333;background: #202020; display: none;}
+    .task-actions-update-area.show { display: block; }
+    .task-status-actions { margin-bottom: 10px; display: flex; gap: 8px; justify-content: space-around; }
+    .task-status-actions .btn { flex-grow: 1; font-size: 0.8em; padding: 5px 8px; }
+    .btn.status-inprogress { background-color: #07a; color: white; }
+    .btn.status-stuck { background-color: #d35400; color: white; }
+    .btn.status-done { background-color: #27ae60; color: white; }
+    .btn.status-inprogress:hover { background-color: #09d; }
+    .btn.status-stuck:hover { background-color: #e67e22; }
+    .btn.status-done:hover { background-color: #2ecc71; }
+    #update-input-area label { display: block; color: #ccc; margin-bottom: 5px; font-size: 0.9em; font-weight: bold; }
+    #update-input { width: 100%; padding: 8px; border: 1px solid #444; border-radius: 4px; background: #282828; color: #eee; box-sizing: border-box; margin-bottom: 8px; resize: vertical; min-height: 40px; max-height: 100px;}
+    #update-submit-btn { padding: 6px 12px; background: #09f; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; float: right; }
+    #update-submit-btn:hover:not(:disabled) { background: #07d; }
+    #update-submit-btn:disabled { background: #555; cursor: not-allowed;}
+    #update-input-area::after { content: ""; display: table; clear: both; }
+    .chat{flex:1;display:flex;flex-direction:column; background: #111;}
+    #message-display{flex:1;padding:15px;overflow-y:auto;background:#111}
+    #message-display p{margin:0 0 10px;line-height:1.4;word-wrap:break-word}
+    .user-message{text-align:right;color:#aae;margin-left:40px}
+    .agent-message{text-align:left;color:#eee;margin-right:40px}
+    .system-message{font-style:italic;color:#aaa;font-size:.9em;text-align:center; margin-top: 5px; margin-bottom: 15px;}
+    .system-message.important{color:#f90; font-weight: bold; border: 1px dashed #f90; padding: 8px; border-radius: 4px; background-color: rgba(255, 153, 0, 0.1);}
+    .error-message{font-style:italic;color:#f55;font-size:.9em;text-align:center; margin-top: 5px; margin-bottom: 15px; border: 1px dashed #f55; padding: 8px; border-radius: 4px; background-color: rgba(255, 85, 85, 0.1);}
+    #input-area{display:flex;padding:10px;border-top:1px solid #333;background:#282828}
+    #message-input{flex:1;padding:10px;border:1px solid #444;border-radius:4px;background:#333;color:#eee;resize:none;margin-right:10px;height:40px; overflow-y:hidden;font-family:inherit;font-size:inherit; line-height: 1.4;}
+    #send-button{padding:0 20px;background:#09f;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;height:40px; align-self: flex-end;}
+    #send-button:hover:not(:disabled){background:#07d}
+    #send-button:disabled{background:#555;cursor:not-allowed}
+    .modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;visibility:hidden;opacity:0; transition: visibility 0s linear 0.2s, opacity 0.2s linear; z-index: 1000;}
+    .modal.show{visibility:visible;opacity:1; transition: visibility 0s linear 0s, opacity 0.2s linear;}
+    .modal-content{background:#222;padding:20px;border-radius:8px;width:320px;box-shadow:0 4px 10px rgba(0,0,0,.3)}
+    .modal-content h3{margin-top:0;color:#09f}
+    .modal-content label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #ccc;}
+    .modal-content input,.modal-content textarea{width:100%;padding:8px;margin-bottom:10px;border:1px solid #444;border-radius:4px;background:#333;color:#eee;box-sizing:border-box}
+    .modal-actions{display:flex;justify-content:flex-end; margin-top: 10px;}
+    .btn{padding:6px 12px;border:none;border-radius:4px;cursor:pointer;font-size:.9em}
+    .btn.primary{background:#09f;color:#fff;margin-left:10px}
+    .btn.primary:hover:not(:disabled){background:#07d}
+    .btn.primary:disabled{background:#555; cursor:not-allowed;}
+    .btn:not(.primary) { background: #444; color: #ccc; }
+    .btn:not(.primary):hover { background: #555; }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="navbar-brand">Company Agents</a>
+    <div class="navbar-links">
+      <span class="navbar-user" id="user-info">Loading…</span>
+      <button class="logout-btn" id="logout-button">Logout</button>
+    </div>
+  </nav>
+
+  <div class="content">
+    <div class="tasks-panel">
+      <div class="tasks-header">
+        <h2>My Tasks</h2>
+        <div>
+            <button class="btn" id="btn-edit-profile" style="margin-right: 10px;">Edit Profile</button>
+            <button class="btn primary" id="btn-new-task">＋ New Task</button>
+        </div>
+      </div>
+      <div class="task-list" id="task-list">
+        </div>
+      <div class="task-actions-update-area" id="task-actions-update-area">
+        <div class="task-status-actions">
+            <button class="btn status-inprogress" data-status="in_progress">In Progress</button>
+            <button class="btn status-stuck" data-status="stuck">Stuck</button>
+            <button class="btn status-done" data-status="complete">Done</button>
+        </div>
+        <div id="update-input-area">
+            <label id="update-label" for="update-input">Provide Update:</label>
+            <textarea id="update-input" rows="2"></textarea>
+            <button id="update-submit-btn">Submit Update</button>
+          </div>
+      </div>
+    </div>
+
+    <div class="chat">
+      <div id="message-display">
+        </div>
+      <div id="input-area">
+        <textarea id="message-input" placeholder="Type your message to the agent…" rows="1"></textarea>
+        <button id="send-button" disabled>Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="task-modal">
+    <div class="modal-content">
+      <h3>Create New Task</h3>
+        <label for="task-title">Title</label>
+      <input id="task-title" placeholder="Task title"/>
+        <label for="task-desc">Description</label>
+      <textarea id="task-desc" placeholder="Task description (provide details for the agent)" rows="4"></textarea>
+      <div class="modal-actions">
+        <button class="btn" id="btn-cancel">Cancel</button>
+        <button class="btn primary" id="btn-create">Create Task</button>
+      </div>
+    </div>
+  </div>
+<script>
+    //--------------------------------- Auth & Setup -----------------------------
+    const token=localStorage.getItem('token');if(!token)location.href='/login.html';
+    function decode(t){try{return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));}catch(e){console.error('JWT Decode Error:', e); localStorage.removeItem('token'); location.href='/login.html'; return null;}}
+    const payload=decode(token);if(!payload||payload.role!=='EMP'){console.log('Redirecting non-EMP or invalid token');location.href='/';}
+    
+    //--------------------------------- Elements ------------------------------
+    const userInfoEl = document.getElementById('user-info');
+        if (userInfoEl) {
+        userInfoEl.textContent = `${payload.email} (EMP)`;   // template literal ✔
+        } else {
+        console.error("Element with ID 'user-info' not found in the DOM.");
+        }
+    
+    document.getElementById('logout-button').onclick=()=>{if(ws) ws.close(); localStorage.removeItem('token');location.href='/login.html';};
+    const taskListEl=document.getElementById('task-list');
+    const messageDisplay=document.getElementById('message-display');
+    const messageInput=document.getElementById('message-input');
+    const sendBtn=document.getElementById('send-button');
+    const modal=document.getElementById('task-modal');
+    const taskTitleInput = document.getElementById('task-title');
+    const taskDescInput = document.getElementById('task-desc');
+    const taskCreateBtn = document.getElementById('btn-create');
+    const taskActionsUpdateArea = document.getElementById('task-actions-update-area');
+    const updateArea = document.getElementById('update-input-area');
+    const updateLabel = document.getElementById('update-label');
+    const updateInput = document.getElementById('update-input');
+    const updateSubmitBtn = document.getElementById('update-submit-btn');
+    const statusButtons = taskActionsUpdateArea.querySelectorAll('.task-status-actions .btn');
+    const newTaskButton = document.getElementById('btn-new-task');
+    const editProfileBtn = document.getElementById('btn-edit-profile');
+    
+    // --- Auto-resize textareas ---
+    [messageInput, updateInput].forEach(textarea => {
+        textarea.addEventListener('input', function () {
+          this.style.height = 'auto'; // Reset height
+          // Set height based on scroll height, capped (adjust px as needed)
+          const maxHeight = textarea === messageInput ? 150 : 100;
+          this.style.height = (Math.min(this.scrollHeight, maxHeight)) + 'px';
+        });
+    });
+    
+    //--------------------------------- API Helper ----------------------------
+    async function api(path,opts={}){
+    opts.headers={...(opts.headers||{}),Authorization:`Bearer ${token}`};
+    const r = await fetch(path,opts);
+    const status = r.status; // Store status
+
+    // If response is not OK, try to parse error, otherwise throw status text
+    if(!r.ok){
+        let errorMsg = `${status} ${r.statusText}`;
+        try {
+            const errData = await r.json();
+            errorMsg = errData.error || errorMsg; // Use server error if available
+        } catch (e) { /* Ignore JSON parse error on non-ok response */ }
+        // Throw an error object with status property
+        throw Object.assign(new Error(errorMsg), { status: status });
+    }
+
+    // Handle OK responses
+    if (status === 204) return { status, body: null }; // Handle 'No Content'
+
+    // Try to parse JSON body for other OK responses
+    try {
+        const body = await r.json();
+        return { status, body };
+    } catch (e) {
+        console.warn('API response was not JSON for path:', path);
+        // For OK responses that aren't JSON, return status and null body
+        return { status, body: null };
+    }
+}
+    
+    //--------------------------------- Modal handlers -------------
+    
+    newTaskButton.onclick = () => {
+        console.log("New Task button clicked. Showing create modal.");
+        showCreateTaskModal(); // Directly show the modal
+    };
+
+    function showCreateTaskModal() {
+        taskTitleInput.value = '';
+        taskDescInput.value = '';
+        modal.classList.add('show');
+        taskTitleInput.focus();
+    }
+
+    if (editProfileBtn) {
+        editProfileBtn.onclick = async () => {
+            editProfileBtn.disabled = true;
+            try {
+                console.log("Edit Profile button clicked. Fetching profile task ID...");
+                const response = await api('/api/employee/profile-task-id');
+                if (response?.body?.taskId) {
+                    console.log(`Profile task found: ${response.body.taskId}. Selecting it.`);
+                    selectTask(response.body.taskId);
+                    // Highlight in list logic (ensure it's visible and active)
+                    setTimeout(() => {
+                        const taskElement = taskListEl.querySelector(`.task-item[data-task-id="${response.body.taskId}"]`);
+                        if (taskElement) {
+                            document.querySelectorAll('.task-item').forEach(x=>x.classList.remove('active'));
+                            taskElement.classList.add('active');
+                            taskElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    }, 100);
+                    addMsg('System', 'Selected your "Update Profile" task.', 'system-message');
+                } else {
+                    // This case should not happen if the API guarantees a profile task exists
+                    // or returns a specific error/status code if not found.
+                    console.error('Could not find profile task ID, although API call succeeded.');
+                    alert('Could not find your profile task. Please contact support.');
+                }
+            } catch (error) {
+                 if (error.status === 404) {
+                     // Handle case where the profile task genuinely doesn't exist (e.g., new user)
+                     // This scenario is less likely with the persistent profile task design.
+                     alert('Could not find your profile task. It might not have been created yet.');
+                 } else {
+                    console.error("Error fetching profile task ID for edit:", error);
+                    alert(`Error selecting profile task: ${error.message}`);
+                 }
+            } finally {
+                editProfileBtn.disabled = false;
+            }
+        };
+    }
+
+    document.getElementById('btn-cancel').onclick=()=>{modal.classList.remove('show');};
+    // Create Task button inside modal
+    taskCreateBtn.onclick=async()=>{
+        const title=taskTitleInput.value.trim(); const desc=taskDescInput.value.trim();
+        if(!title)return alert('Task Title is required');
+        taskCreateBtn.disabled = true; taskCreateBtn.textContent = 'Creating...';
+        try{
+            const result = await api('/api/employee/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description:desc})});
+            modal.classList.remove('show');
+            addMsg('System', `Task "${escape(title)}" created. Agent will process it shortly.`, 'system-message');
+            await loadTasks(); // Reload task list
+            // Select the new task if ID is returned in the body
+            if (result && result.body?.taskId) {
+                setTimeout(() => selectTask(result.body.taskId), 100); // Select after list likely updated
+            }
+        } catch(e) {
+            alert('Error creating task: '+e.message);
+        } finally {
+            taskCreateBtn.disabled = false; taskCreateBtn.textContent = 'Create Task';
+        }
+    };
+    
+    //--------------------------------- Load tasks ---------------------------
+    let tasksData = {}; // Store full task info locally {taskId: {title, status, ...}}
+    let activePolls = {}; // Store active poll IDs: { taskId: pollId }
+    let currentTaskId=null; // Track the currently selected task
+    
+    async function loadTasks(){
+    taskListEl.innerHTML='<li>Loading tasks…</li>';
+    tasksData = {}; // Clear local cache
+    let firstTaskId = null;
+
+    try {
+            // Fetch all tasks for the employee
+            const tasksResponse = await api('/api/employee/tasks');
+            const tasks = tasksResponse?.body || [];
+
+            taskListEl.innerHTML=''; // Clear loading message
+            if (tasks.length === 0) {
+                taskListEl.innerHTML = '<li style="color:#aaa; padding: 10px 15px;">No tasks found. Create one!</li>';
+                taskActionsUpdateArea.classList.remove('show'); // Hide actions
+                return;
+            }
+
+            // Populate task list
+            tasks.forEach((t, index)=>{
+                if (index === 0 && !currentTaskId) firstTaskId = t.task_id;
+                tasksData[t.task_id] = t; // Store basic task info
+                const div=document.createElement('div');
+                div.className='task-item';
+                div.dataset.taskId = t.task_id;
+
+                let statusIndicator = ''; let statusIconClass = '';
+                switch (t.status?.toLowerCase()) {
+                    case 'pending':     statusIndicator = ' (⏳)'; statusIconClass = 'status-pending'; break;
+                    case 'in_progress': statusIndicator = ' (⚙️)'; statusIconClass = 'status-in-progress'; break;
+                    case 'stuck':       statusIndicator = ' (❗)'; statusIconClass = 'status-stuck'; break;
+                    case 'complete':    statusIndicator = ' (✅)'; statusIconClass = 'status-complete'; break;
+                    default:            statusIndicator = ' (?)';  statusIconClass = 'status-unknown';
+                }
+
+                div.innerHTML=`${escape(t.title)}<span class="status-icon ${statusIconClass}">${statusIndicator}</span>`;
+                div.onclick=()=>selectTask(t.task_id);
+
+                if (activePolls[t.task_id]) { div.classList.add('update-requested'); }
+                taskListEl.appendChild(div);
+            });
+
+            // Select previously selected task, or the first one if none was selected
+            const taskToSelect = currentTaskId && tasksData[currentTaskId] ? currentTaskId : firstTaskId;
+            if (taskToSelect) {
+                selectTask(taskToSelect); // This will handle UI updates (highlighting, showing actions, enabling send button)
+            } else {
+                // If no task ends up selected (e.g., list was empty before)
+                taskActionsUpdateArea.classList.remove('show');
+                messageDisplay.innerHTML = '<p class="system-message">Select a task to begin.</p>';
+            }
+
+        } catch(e) {
+            console.error("Error loading tasks:", e);
+            taskListEl.innerHTML = `<li style="color:#f55; padding: 10px 15px;">Error loading tasks: ${e.message}</li>`;
+            taskActionsUpdateArea.classList.remove('show'); // Hide on error
+        }
+    }
+    
+    function selectTask(id){
+        currentTaskId=id;
+        const task = tasksData[id];
+        console.log(`Selected task: ${id} (${task.title}) Status: ${task.status}`);
+    
+        // Update task list highlighting
+        document.querySelectorAll('.task-item').forEach(x=>x.classList.remove('active'));
+        const taskElement = taskListEl.querySelector(`.task-item[data-task-id="${id}"]`);
+        if (taskElement) {
+            taskElement.classList.add('active');
+        }
+    
+        // --- Show the actions/update area ---
+        taskActionsUpdateArea.classList.add('show');
+    
+        // Set label for update area
+        updateLabel.textContent = `Provide Update for: "${escape(task.title)}"`;
+        updateInput.value = ''; // Clear previous input
+        updateArea.dataset.taskId = id; // Store context
+        updateInput.style.height = 'auto'; updateInput.style.height = '40px'; // Reset height
+        updateSubmitBtn.disabled = false; // Ensure update button is enabled
+    
+        // Enable/disable status buttons based on task status (optional refinement)
+        statusButtons.forEach(btn => {
+           btn.disabled = (task.status === 'complete' && btn.dataset.status === 'complete');
+        });
+    }
+    
+    //----------------------------- Task Update UI Handlers ----------------------
+    
+    // Handle Update Submission (Proactive)
+    updateSubmitBtn.onclick = () => {
+        const taskId = updateArea.dataset.taskId; // Use ID stored on the update area itself
+        const updateText = updateInput.value.trim();
+    
+        if (!taskId) { alert("No task selected."); return; }
+        if (!updateText) { alert("Update text cannot be empty."); return; }
+    
+        // Check if this update corresponds to an active poll request
+        const pollId = activePolls[taskId] || null;
+    
+        console.log(`Sending ${pollId ? 'POLL RESPONSE' : 'PROACTIVE'} update for task ${taskId}`);
+        sendTaskUpdate(taskId, pollId, updateText); // Pass pollId if available
+    
+        // Clear input after submitting
+        updateInput.value = '';
+        updateInput.style.height = 'auto'; updateInput.style.height = '40px'; // Reset height
+    };
+    
+    // Handle Status Button Clicks (Modified "Done" logic)
+    statusButtons.forEach(button => {
+        button.onclick = () => {
+            const taskId = currentTaskId; // Get from global state
+            const newStatus = button.dataset.status;
+    
+            if (!taskId) { alert("No task selected."); return; }
+            if (!newStatus) { console.error("Status button missing data-status attribute:", button); return; }
+    
+            let explanation = null;
+            if (newStatus === 'stuck') {
+                explanation = prompt(`You marked task "${tasksData[taskId]?.title}" as 'Stuck'. Please provide a brief explanation (optional):`, "");
+                // If user cancels, explanation is null, proceed normally
+            }
+    
+            // --- NEW: Submit pending update text if clicking "Done" ---
+            if (newStatus === 'complete') {
+                const pendingUpdateText = updateInput.value.trim();
+                if (pendingUpdateText) {
+                    console.log(`Submitting pending update text before marking task ${taskId} as done.`);
+                    // Check if this 'done' update also resolves a poll
+                    const pollId = activePolls[taskId] || null;
+                    sendTaskUpdate(taskId, pollId, pendingUpdateText); // Send update (and potentially poll response)
+                    updateInput.value = ''; // Clear input
+                    updateInput.style.height = 'auto'; updateInput.style.height = '40px'; // Reset height
+                }
+            }
+            // --- END NEW ---
+    
+            console.log(`Setting task ${taskId} status to: ${newStatus}` + (explanation ? ` Reason: ${explanation}` : ''));
+            // Send status update via WebSocket
+            sendStatusUpdate(taskId, newStatus, explanation);
+    
+            // --- Optimistic UI Update ---
+            if (tasksData[taskId]) { tasksData[taskId].status = newStatus; } // Update local cache
+            const taskElement = taskListEl.querySelector(`.task-item[data-task-id="${taskId}"]`); // Update list item
+            if (taskElement) {
+                const statusSpan = taskElement.querySelector('.status-icon');
+                let statusIndicator = ''; let statusIconClass = '';
+                switch (newStatus.toLowerCase()) {
+                    case 'pending':     statusIndicator = ' (⏳)'; statusIconClass = 'status-pending'; break;
+                    case 'in_progress': statusIndicator = ' (⚙️)'; statusIconClass = 'status-in-progress'; break;
+                    case 'stuck':       statusIndicator = ' (❗)'; statusIconClass = 'status-stuck'; break;
+                    case 'complete':    statusIndicator = ' (✅)'; statusIconClass = 'status-complete'; break;
+                    default:            statusIndicator = ' (?)';  statusIconClass = 'status-unknown';
+                }
+                if (statusSpan) { statusSpan.textContent = statusIndicator; statusSpan.className = `status-icon ${statusIconClass}`; }
+                // Disable button if task marked complete
+                 button.disabled = (newStatus === 'complete');
+                 // Re-enable other buttons if changing *from* complete (optional)
+                 // if (newStatus !== 'complete') { statusButtons.forEach(btn => btn.disabled = false); }
+            }
+        };
+    });
+    
+    
+    //--------------------------------- WebSocket Chat & Functions -------------
+    function addMsg(sender, text, cls = 'system-message') {
+        const p = document.createElement('p');
+        p.className = cls;
+        p.innerHTML = `<strong>${escape(sender)}:</strong> ${escape(text)}`;
+        messageDisplay.appendChild(p);
+        messageDisplay.scrollTop = messageDisplay.scrollHeight; // Scroll to bottom
+    }
+
+    function escape(s){
+        if(s===null||s===undefined)return '';
+        return s.toString().replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+    }
+        
+    let ws=null; window.ws = ws;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const RECONNECT_DELAY_MS = 5000;
+    
+    function initWS(){
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            console.log("[WS] Connection already open or opening."); return;
+        }
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsPort = 3001;
+        const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}`;
+        console.log(`[WS] Attempting to connect to ${wsUrl}...`);
+        ws = new WebSocket(wsUrl);
+        window.ws = ws;
+        ws.isAuth = false;
+    
+        ws.onopen=()=>{
+            console.log("[WS] Connection opened. Sending auth...");
+            reconnectAttempts = 0;
+            addMsg('System', 'Connected to agent service.', 'system-message');
+            ws.send(JSON.stringify({type:'auth',token}));
+        };
+    
+        ws.onmessage=e=>{
+            let m;
+            try { m = JSON.parse(e.data); } catch(err){ addMsg('System', 'Received invalid message format.', 'error-message'); return; }
+            console.log("[WS] Received:", m);
+    
+            if(m.type==='auth_success'){
+                console.log("[WS] Auth successful.");
+                ws.isAuth = true;
+                // Enable the general chat button now that we are authenticated
+                sendBtn.disabled = false;
+                addMsg('System', 'Agent connection authenticated.', 'system-message');
+            }
+            else if(m.type==='auth_failed'){
+                console.error("[WS] Auth failed:", m.error);
+                addMsg('System', `Authentication Failed: ${escape(m.error || 'Unknown reason')}. Please re-login.`, 'error-message');
+                ws.isAuth = false; sendBtn.disabled=true; ws.close();
+            }
+            else if (ws.isAuth) { // Handle messages only if authenticated
+                if(m.type==='agent_response'){
+                    addMsg('Agent', m.data?.answerText || '[empty response]', 'agent-message');
+                }
+                else if(m.type==='system_message'){
+                    addMsg('System', m.data?.message || '[system message]', m.data?.isImportant ? 'system-message important' : 'system-message');
+                }
+                else if (m.type === 'agent_status') {
+                    console.log(`[WS] Agent Status Update: ${m.status}`, m.message || '');
+                    // Optionally display agent status somewhere?
+                }
+                else if (m.type === 'error') {
+                     addMsg('System', `Error: ${escape(m.data?.message || m.error || 'An unknown error occurred.')}`, 'error-message');
+                }
+                // *** HANDLE POLL REQUEST ***
+                else if (m.type === 'poll_request') {
+                    const { taskId, pollId } = m;
+                    console.log(`[WS] Received poll request for task ${taskId} (Poll ID: ${pollId})`);
+                    if (!tasksData[taskId]) { console.warn('Poll request for unknown task:', taskId); return; }
+    
+                    activePolls[taskId] = pollId; // Store active poll
+    
+                    const taskTitle = tasksData[taskId]?.title || `Task ID ${taskId}`;
+                    addMsg('System', `Manager requested an update for: "${escape(taskTitle)}". Please provide details using the update input area below the task list.`, 'system-message important');
+    
+                    const taskElement = taskListEl.querySelector(`.task-item[data-task-id="${taskId}"]`);
+                    if (taskElement) { taskElement.classList.add('update-requested'); }
+    
+                    // If this task is currently selected, focus the update area
+                    if (taskId === currentTaskId) {
+                        updateInput.focus();
+                        // Maybe add a temporary highlight/border to the update area
+                        updateArea.style.outline = '2px solid #f90';
+                        setTimeout(() => { updateArea.style.outline = 'none'; }, 3000); // Remove highlight after 3s
+                    }
+                }
+                else {
+                    console.log("[WS] Received unhandled authenticated message type:", m.type);
+                }
+            } else {
+                 console.warn("[WS] Received message before authentication success:", m.type);
+            }
+        };
+    
+        ws.onclose=(event)=>{
+            console.log("[WS] Connection closed.", event.code, event.reason);
+            ws.isAuth = false; sendBtn.disabled=true;
+            ws = null; window.ws = null; // Clear references
+            if (event.code === 1000) { // Normal closure
+                addMsg('System', 'Connection closed.', 'system-message');
+            } else if (event.code === 1008) { // Policy violation (e.g., bad auth)
+                 // Message already shown by auth_failed handler
+                 console.log("[WS] Connection closed due to policy violation (likely auth).");
+            } else { // Abnormal closure
+                addMsg('System', `Connection lost (Code: ${event.code}). Attempting to reconnect...`, 'error-message');
+                reconnectAttempts++;
+                if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+                    setTimeout(initWS, RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts - 1)); // Exponential backoff
+                } else {
+                    addMsg('System', 'Max reconnection attempts reached. Please refresh the page or re-login.', 'error-message');
+                    console.error('[WS] Max reconnect attempts reached.');
+                }
+            }
+        };
+    
+        ws.onerror=(err)=>{
+            console.error("[WS] WebSocket error:", err);
+            // Don't add duplicate messages if onclose will handle reconnection attempts
+            if (!ws || ws.readyState === WebSocket.CLOSED) {
+               // If already closed or closing, onclose will handle message/reconnect
+            } else {
+                addMsg('System', 'WebSocket connection error occurred.', 'error-message');
+            }
+            ws.isAuth = false; sendBtn.disabled=true;
+        };
+    }
+    
+    // Send general message TO THE AGENT
+    function send() {
+        const txt=messageInput.value.trim();
+        if(!txt) return;
+
+        if (!ws || ws.readyState !== WebSocket.OPEN || !ws.isAuth) {
+            console.warn(`[WS] Send check failed: ws=${!!ws}, state=${ws?.readyState}, isAuth=${ws?.isAuth}`);
+            addMsg('System', 'Cannot send message: Not connected or not authenticated.', 'error-message');
+            return;
+        }
+    
+        const messagePayload = {
+            type: 'employee_message',
+            text: txt
+        };
+    
+        addMsg('You', txt, 'user-message');
+        console.log('[WS] Sending employee_message (General Chat):', messagePayload);
+        ws.send(JSON.stringify(messagePayload));
+    
+        messageInput.value='';
+        messageInput.style.height = 'auto'; messageInput.style.height = '40px'; // Reset height
+        messageInput.focus();
+    }
+    
+    // Send specific task update (proactive or poll response)
+    function sendTaskUpdate(taskId, pollId, updateText) { // pollId can be null
+         if (!ws || ws.readyState !== WebSocket.OPEN || !ws.isAuth) {
+             console.warn(`[WS] Task Update Send check failed: ws=${!!ws}, state=${ws?.readyState}, isAuth=${ws?.isAuth}`);
+             addMsg('System', 'Cannot send task update: Not connected or not authenticated.', 'error-message');
+             return; // Indicate failure
+         }
+    
+         const messagePayload = {
+             type: 'employee_task_update',
+             taskId: taskId,
+             updateText: updateText
+         };
+         // Only include pollId if it's provided (i.e., this IS a response to a poll)
+         if (pollId) { messagePayload.pollId = pollId; }
+    
+         console.log('[WS] Sending Task Update:', messagePayload);
+         ws.send(JSON.stringify(messagePayload));
+    
+         // If this was a poll response, clear the local poll state and UI highlight
+         if (pollId) {
+             delete activePolls[taskId];
+             const taskElement = taskListEl.querySelector(`.task-item[data-task-id="${taskId}"]`);
+             if (taskElement) taskElement.classList.remove('update-requested');
+         }
+    
+         // Give user feedback in the chat
+         addMsg('System', `Update sent for task: ${escape(tasksData[taskId]?.title || taskId)}`, 'system-message');
+         return true; // Indicate success
+    }
+    
+    // Send status update
+    function sendStatusUpdate(taskId, newStatus, explanation = null) {
+        if (!ws || ws.readyState !== WebSocket.OPEN || !ws.isAuth) {
+            console.warn(`[WS] Status Update Send check failed: ws=${!!ws}, state=${ws?.readyState}, isAuth=${ws?.isAuth}`);
+            addMsg('System', 'Cannot send status update: Not connected or not authenticated.', 'error-message');
+            return;
+        }
+        const messagePayload = {
+            type: 'employee_status_update',
+            taskId: taskId,
+            newStatus: newStatus
+        };
+        if (explanation !== null && explanation.trim() !== '') { // Only include non-empty explanation
+            messagePayload.explanation = explanation;
+        }
+    
+        console.log('[WS] Sending Status Update:', messagePayload);
+        ws.send(JSON.stringify(messagePayload));
+    
+        // Optional: Add system message confirming status change locally
+        addMsg('System', `Status for task '${escape(tasksData[taskId]?.title || taskId)}' set to '${newStatus}'.`, 'system-message');
+    }
+    
+    
+    //--------------------------------- Event Listeners ---------------------
+    sendBtn.onclick=send;
+    messageInput.addEventListener('keypress', e => {
+        if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    
+    
+    //--------------------------------- Initial Load ------------------------
+    loadTasks(); // Load tasks on page start
+    initWS();    // Initialize WebSocket
+    
+</script>
+  </body>
+  </html>

@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Login - Company Agents</title> <style>
+    body { font-family: sans-serif; margin: 20px; background: #111; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 90vh; }
+    .container { background: #222; padding: 30px 40px; border-radius: 8px; width: 300px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+    h1 { text-align: center; color: #09f; margin-bottom: 25px; }
+    label { display: block; margin-bottom: 5px; color: #ccc; }
+    input[type="email"], input[type="password"] { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #444; border-radius: 4px; background: #333; color: #eee; box-sizing: border-box; }
+    button { width: 100%; padding: 12px; background: #09f; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background 0.2s; }
+    button:hover { background: #07d; }
+    .error { color: #f55; margin-top: 15px; text-align: center; font-size: 0.9em; min-height: 1.2em;}
+    .links { margin-top: 20px; text-align: center; font-size: 0.9em; }
+    .links a { color: #0af; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Login</h1>
+    <form id="login-form">
+      <div>
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" required>
+      </div>
+      <div>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+      </div>
+      <button type="submit">Login</button>
+      <div id="error-message" class="error"></div>
+    </form>
+    <div class="links">
+      Don't have an account? <a href="/register.html">Register here</a>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const errorMessage = document.getElementById('error-message');
+
+    // --- Helper to decode JWT payload (basic) ---
+    function decodeJwtPayload(token) {
+        try {
+            const payloadBase64 = token.split('.')[1];
+            const decodedJson = atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'));
+            return JSON.parse(decodedJson);
+        } catch (error) {
+            console.error('Failed to decode JWT:', error);
+            return null;
+        }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      errorMessage.textContent = '';
+
+      const email = form.email.value;
+      const password = form.password.value;
+
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          const token = data.token;
+          localStorage.setItem('token', token);
+
+          // --- Decode token and redirect based on role ---
+          const payload = decodeJwtPayload(token);
+          if (payload && payload.role) {
+              // <<< START REVISED Redirect Logic (Refactor #3) >>>
+              if (payload.role === 'CEO') {
+                  console.log('Redirecting CEO to dashboard...');
+                  window.location.href = '/dashboard.html'; // Or '/admin.html' - choose preferred landing
+              } else if (payload.role === 'PM') {
+                  console.log('Redirecting PM to admin dashboard...');
+                   window.location.href = '/admin.html'; // Or '/dashboard.html'
+              } else if (payload.role === 'EMP') {
+              // <<< END REVISED Redirect Logic >>>
+                  console.log('Redirecting EMP to employee interface...');
+                  window.location.href = '/employee.html'; // Redirect EMP to their own page
+              } else {
+                  console.warn('Unknown role in token:', payload.role);
+                  errorMessage.textContent = 'Login successful, but role is unrecognized.';
+                  // Fallback redirect
+                  window.location.href = '/';
+              }
+          } else {
+              // Failed to decode token or role missing
+              errorMessage.textContent = 'Login successful, but failed to determine role. Redirecting.';
+              console.error('Could not decode token or find role after login.');
+              window.location.href = '/'; // Fallback redirect
+          }
+          // --- End Role-Based Redirect ---
+
+      } else {
+          errorMessage.textContent = data.error || 'Login failed. Please try again.';
+      }
+      } catch (error) {
+        console.error('Login error:', error);
+        errorMessage.textContent = 'An error occurred during login. Please check the console.';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# docker-compose.prod.yml
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This file ONLY contains the settings that differ from your
+# development setup (no bind-mounts, no nodemon, auto-restart).
+
+version: "3.9"
+
+services:
+  app:
+    # ─── production command ───────────────────────────────────────────────
+    command: node src/server/index.js           # start once, no hot-reload
+
+    # ─── detach source code and host node_modules ─────────────────────────
+    volumes: []                                 # image-only, no mounts
+
+    # ─── restart policy for resiliency ────────────────────────────────────
+    restart: unless-stopped
+
+    # (Optional) environment overrides go here. Example:
+    # environment:
+    #   MIN_WORKERS: 2
+    #   MAX_WORKERS: 6

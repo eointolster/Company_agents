@@ -1,0 +1,770 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>CEO / PM Dashboard – Company Agents</title>
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
+  <link rel="stylesheet" href="styles.css">
+
+  </head>
+<body>
+  <nav class="navbar">
+    <a href="/admin.html" class="navbar-brand">Company Agents – Admin Dashboard</a>
+    <div class="navbar-links">
+      <span class="navbar-user" id="user-info">Loading...</span>
+      <a href="/manage-users.html">Manage Users</a>
+      <a href="/dashboard.html">Agent Activity</a>
+      <a href="/status-dashboard.html">Status Dashboard</a>
+      <a href="/task-table-dashboard.html">Task Table</a>
+      <span id="ws-indicator" title="WebSocket Connection Status"></span> <button class="logout-btn" id="logout-button">Logout</button>
+    </div>
+  </nav>
+
+  <div class="split">
+    <div class="sidebar">
+      <h2>Employees</h2>
+      <ul id="employee-list">
+         </ul>
+    </div>
+    <div class="content">
+      <div class="view-controls">
+        <button class="btn active" id="view-btn-tasks">Task View</button>
+        <button class="btn" id="view-btn-orgchart">Org Chart</button>
+      </div>
+      <div class="filter-controls" id="filter-controls">
+        <span>Filter by Status:</span>
+        <button class="btn active" data-status="all">All</button>
+        <button class="btn" data-status="pending">Pending</button>
+        <button class="btn" data-status="in_progress">In Progress</button>
+        <button class="btn" data-status="stuck">Stuck</button>
+        <button class="btn" data-status="complete">Complete</button>
+      </div>
+      <div class="main-view-area">
+          <div class="task-list" id="task-list">
+            <p class="message">Select an employee from the sidebar to view their tasks.</p>
+          </div>
+          <div id="org-chart-container" class="hidden">
+             <p class="message">Loading Org Chart...</p>
+          </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ─── WebSocket globals ───────────────────────────────────
+let adminWS = null;
+let adminWsReconnectAttempts = 0;
+const MAX_ADMIN_WS_RECONNECT_ATTEMPTS = 5;
+const ADMIN_WS_RECONNECT_DELAY_MS   = 5000;
+
+// -------------------- Auth & globals ----------------------
+const token = localStorage.getItem('token');
+if (!token) window.location.href = '/login.html';
+
+// DOM Element References
+const userInfoEl = document.getElementById('user-info');
+const employeeListEl = document.getElementById('employee-list');
+const logoutBtn = document.getElementById('logout-button');
+const wsIndicator = document.getElementById('ws-indicator');
+const viewBtnTasks = document.getElementById('view-btn-tasks');
+const viewBtnOrgChart = document.getElementById('view-btn-orgchart');
+const filterControlsEl = document.getElementById('filter-controls');
+const taskListEl = document.getElementById('task-list');
+const orgChartContainer = document.getElementById('org-chart-container');
+
+// State Variables
+let selectedEmpId = null;
+let currentStatusFilter = 'all';
+let currentView = 'tasks'; // 'tasks' or 'orgchart'
+let orgChart = null; // Holds the vis Network instance
+let orgChartDataCache = null; // Cache org chart data { users: [] }
+
+// --- Utility Functions ---
+function decodeJwtPayload(tok){
+  // Decodes the payload part of a JWT. Basic implementation without signature verification.
+  try {
+    // Split token, get payload (middle part), replace URL-safe chars, decode base64, parse JSON
+    return JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+  }
+  catch(e){
+    // Log error if decoding fails
+    console.error('JWT decode error',e);
+    return null; // Return null on failure
+  }
+}
+
+function escapeHtml(str){
+  // Escapes basic HTML characters to prevent XSS issues when inserting text into HTML.
+  if (str===null||str===undefined) return ''; // Return empty string for null or undefined input
+  // Replace special characters with their HTML entities
+  return str.toString()
+       .replace(/&/g, "&amp;")
+       .replace(/</g, "&lt;")
+       .replace(/>/g, "&gt;")
+       .replace(/"/g, "&quot;")
+       .replace(/'/g, "&#039;");
+}
+
+async function fetchJSON(url, opts={}){
+  // Helper function to fetch JSON data from an API endpoint with Authorization header.
+  // Automatically adds the JWT token to the request headers.
+  opts.headers = { ...(opts.headers||{}), Authorization:`Bearer ${token}` }; // Add auth header
+  const r = await fetch(url, opts); // Perform the fetch request
+  if(!r.ok){
+    // Handle HTTP errors (status code not in 200-299 range)
+    let msg;
+    try { msg = (await r.json()).error; } // Try to parse error message from JSON response
+    catch{ msg = `${r.status} ${r.statusText}`; } // Fallback to status text
+    throw new Error(msg || 'Unknown API error'); // Throw an error
+  }
+  if (r.status===204) return null; // Handle 'No Content' response
+  try {
+    return await r.json(); // Parse and return JSON response body
+  } catch {
+    // Handle cases where response is not valid JSON
+    console.warn('API response not JSON for URL:', url);
+    return null;
+  }
+}
+
+// --- Initialization ---
+const payload = decodeJwtPayload(token); // Decode token on load
+// Redirect if token is invalid or user role is incorrect
+if (!payload || !(payload.role==='CEO'||payload.role==='PM')){
+    // Redirect EMP to their page, others to login
+    window.location.href = payload?.role==='EMP' ? '/employee.html' : '/login.html';
+}
+else {
+  // If authenticated and authorized, proceed with setup
+  userInfoEl.textContent = `Logged in as ${escapeHtml(payload.email)} (${escapeHtml(payload.role)})`;
+  loadEmployees(); // Load initial employee list (and potentially org chart)
+  initAdminWS(); // Initialize WebSocket connection
+  setupFilterListeners(); // Set up filter button clicks
+  setupViewSwitchListeners(); // Set up view switching clicks
+}
+
+// --- Event Handlers ---
+logoutBtn.onclick = ()=>{
+  if(confirm("Are you sure you want to log out?")) { // <-- Add confirmation
+      console.log("Logout confirmed and executed!"); // <-- Add log
+      if (window.adminWS) window.adminWS.close();
+      if (orgChart) { orgChart.destroy(); orgChart = null; }
+      localStorage.removeItem('token');
+      window.location.href='/login.html';
+  } else {
+      console.log("Logout cancelled.");
+  }
+};
+
+// -------------------- View Switching Logic ----------------------
+function setupViewSwitchListeners() {
+  // Add click listeners to the view switching buttons
+  viewBtnTasks.onclick = () => switchView('tasks');
+  viewBtnOrgChart.onclick = () => switchView('orgchart');
+}
+
+function switchView(viewName) {
+  // Handles switching between 'tasks' and 'orgchart' views
+  if (viewName === currentView) return; // Do nothing if already in the target view
+
+  currentView = viewName; // Update the current view state
+  console.log(`[UI] Switching view to: ${currentView}`);
+
+  // Toggle 'active' class on view buttons
+  viewBtnTasks.classList.toggle('active', currentView === 'tasks');
+  viewBtnOrgChart.classList.toggle('active', currentView === 'orgchart');
+
+  // Toggle 'hidden' class on view containers and filter controls
+  taskListEl.classList.toggle('hidden', currentView !== 'tasks');
+  filterControlsEl.classList.toggle('hidden', currentView !== 'tasks'); // Filters only shown in task view
+  orgChartContainer.classList.toggle('hidden', currentView !== 'orgchart');
+
+  // Load data for the newly selected view
+  if (currentView === 'tasks' && selectedEmpId) {
+      loadTasks(); // Reload tasks if switching to task view and an employee is selected
+  } else if (currentView === 'orgchart') {
+      loadAndRenderOrgChart(); // Load/render org chart if switching to org chart view
+  }
+}
+
+// -------------------- Task Filtering UI ----------------------
+function setupFilterListeners() {
+  // Add click listeners to the status filter buttons
+  filterControlsEl.querySelectorAll('.btn').forEach(button => {
+      button.onclick = (e) => {
+          const newFilter = e.target.dataset.status; // Get status from data attribute
+          if (newFilter !== currentStatusFilter) { // Only act if filter changes
+              currentStatusFilter = newFilter; // Update state
+              // Update 'active' class on buttons
+              filterControlsEl.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+              e.target.classList.add('active');
+              // Reload tasks if an employee is selected and we are in the task view
+              if (selectedEmpId && currentView === 'tasks') {
+                  loadTasks();
+              }
+          }
+      };
+  });
+}
+
+// -------------------- Load employees ----------------------
+async function loadEmployees(){
+  // Fetches the list of users, populates the sidebar, caches data, and potentially renders org chart.
+  employeeListEl.innerHTML = '<li>Loading employees…</li>'; // Show loading state
+  try{
+    const users = await fetchJSON('/api/users'); // Fetch user data
+    orgChartDataCache = { users: users || [] }; // Cache the data (even if empty)
+    employeeListEl.innerHTML=''; // Clear loading/previous list
+
+    if(!users || !users.length){
+      // Handle case where no users are found
+      employeeListEl.innerHTML = '<li style="color:#aaa;padding:10px 15px;">No employees found.</li>';
+      orgChartContainer.innerHTML = '<p class="message">No employees found to build org chart.</p>';
+      if (currentView === 'tasks') taskListEl.innerHTML = '<p class="message">No employees available.</p>';
+      return;
+    }
+
+    // Populate the sidebar list
+    users.forEach((u, index)=>{ // Use index for animation delay
+      const li = document.createElement('li');
+      const titleText = u.job_title ? ` - ${escapeHtml(u.job_title)}` : ''; // Add job title if available
+      li.textContent = `${escapeHtml(u.email)} (${escapeHtml(u.role)}${titleText})`;
+      li.dataset.employeeId = u.id; // Store ID for later use
+      // Set tooltip with detailed info
+      li.title = `ID: ${u.id}\nRole: ${u.role}${u.job_title ? `\nTitle: ${escapeHtml(u.job_title)}` : ''}${u.team_name ? `\nTeam: ${escapeHtml(u.team_name)}` : ''}${u.manager_id ? `\nManager ID: ${u.manager_id}` : '\n(No Manager)'}`;
+      // Set CSS variable for staggered animation
+      li.style.setProperty('--item-index', index);
+
+      // Handle clicks on employee list items
+      li.onclick = ()=>{
+        // Update active state in sidebar
+        document.querySelectorAll('.sidebar li').forEach(x=>x.classList.remove('active'));
+        li.classList.add('active');
+        selectedEmpId = u.id; // Update selected employee state
+        console.log('[UI] Selected Employee ID:', selectedEmpId);
+
+        // Load relevant data based on the current view
+        if (currentView === 'tasks') {
+          // Reset filter and load tasks for the selected employee
+          currentStatusFilter = 'all';
+          filterControlsEl.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+          filterControlsEl.querySelector('.btn[data-status="all"]').classList.add('active');
+          loadTasks();
+        } else if (currentView === 'orgchart' && orgChart) {
+             // If in org chart view, select and focus the corresponding node
+             orgChart.selectNodes([selectedEmpId]);
+             orgChart.focus(selectedEmpId, { scale: 1.2, animation: true });
+        }
+      };
+      employeeListEl.appendChild(li); // Add item to the list
+    });
+
+    // Initial load/render based on current view
+    if (currentView === 'orgchart') {
+        loadAndRenderOrgChart(); // Render chart immediately if it's the active view
+    } else {
+        // Clear task list until an employee is explicitly selected
+        taskListEl.innerHTML = '<p class="message">Select an employee from the sidebar.</p>';
+    }
+
+  }catch(e){
+    // Handle errors during employee loading
+    console.error('loadEmployees Error:',e);
+    employeeListEl.innerHTML = `<li class="error-message">Error: ${escapeHtml(e.message)}</li>`;
+    taskListEl.innerHTML = `<p class="message error-message">Error loading employee data.</p>`;
+    orgChartContainer.innerHTML = `<p class="message error-message">Error loading employee data.</p>`;
+    orgChartDataCache = null; // Clear cache on error
+  }
+}
+
+// -------------------- Load tasks ----------------------
+async function loadTasks(){
+  // Fetches and displays tasks for the currently selected employee, respecting the current filter.
+  if(!selectedEmpId){ taskListEl.innerHTML = '<p class="message">Select an employee first.</p>'; return; }
+  // Only proceed if the current view is 'tasks'
+  if (currentView !== 'tasks') { console.log("[UI] loadTasks called but view is not 'tasks'. Skipping."); return; }
+
+  taskListEl.innerHTML = '<p class="message loading-dots">Loading tasks</p>'; // Show loading state
+  let apiUrl = `/api/admin/employee/${selectedEmpId}/tasks`;
+  // Append status filter if not 'all'
+  if (currentStatusFilter && currentStatusFilter !== 'all') { apiUrl += `?status=${currentStatusFilter}`; }
+  console.log(`[UI] Loading tasks from: ${apiUrl}`);
+
+  try{
+    const tasks = await fetchJSON(apiUrl); // Fetch tasks
+    taskListEl.innerHTML=''; // Clear loading/previous tasks
+    if(!tasks || !tasks.length){
+      // Display message if no tasks match the filter
+      const filterText = currentStatusFilter === 'all' ? '' : ` with status '${currentStatusFilter}'`;
+      taskListEl.innerHTML = `<p class="message">No tasks${filterText} found for this employee.</p>`;
+      return;
+    }
+    // Create and append task cards
+    tasks.forEach(t => taskListEl.appendChild(createTaskCard(t)));
+  }catch(e){
+    // Handle errors during task loading
+    console.error('loadTasks Error:',e);
+    taskListEl.innerHTML = `<p class="message error-message">Error loading tasks: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// -------------------- Org Chart Logic ----------------------
+function transformUserDataForChart(users) {
+  // Converts the user array from the API into nodes and edges for Vis Network.
+  const nodes = []; const edges = [];
+  if (!users || !users.length) return { nodes, edges };
+
+  users.forEach(user => {
+      // Create node label (multi-line)
+      const label = `${escapeHtml(user.email)}\n(${escapeHtml(user.role)})${user.job_title ? `\n${escapeHtml(user.job_title)}` : ''}`;
+      // Create HTML tooltip for richer hover info
+      const titleHTML = `<b>ID:</b> ${user.id}<br><b>Email:</b> ${escapeHtml(user.email)}<br><b>Role:</b> ${escapeHtml(user.role)}${user.job_title ? `<br><b>Title:</b> ${escapeHtml(user.job_title)}` : ''}${user.team_name ? `<br><b>Team:</b> ${escapeHtml(user.team_name)}` : ''}${user.manager_id ? `<br><b>Manager ID:</b> ${user.manager_id}` : '<br>(No Manager)'}`;
+
+      nodes.push({
+          id: user.id, label: label, title: titleHTML, // Use HTML title for tooltip
+          shape: 'box', margin: 10,
+          font: { color: '#eee', multi: 'html', align: 'center' }, // Allow HTML in label
+          color: { border: '#09f', background: '#222', highlight: { border: '#fff', background: '#07d' } }
+      });
+      // Add edge if manager exists and isn't self
+      if (user.manager_id !== null && user.manager_id !== user.id) {
+          edges.push({ from: user.manager_id, to: user.id, arrows: 'to', color: { color: '#555', highlight: '#ccc' } });
+      }
+  });
+  return { nodes, edges };
+}
+
+async function loadAndRenderOrgChart() {
+  // Fetches user data (using cache if possible) and renders the org chart.
+  // Check cache first
+  if (orgChartDataCache && orgChartDataCache.users) {
+      console.log("[UI] Using cached user data for org chart.");
+      renderOrgChart(orgChartDataCache.users); return;
+  }
+  // Fetch fresh data if cache is empty
+  console.log("[UI] Fetching user data for org chart...");
+  orgChartContainer.innerHTML = '<p class="message loading-dots">Loading Org Chart data</p>';
+  try {
+      const users = await fetchJSON('/api/users'); // Fetch all users
+      orgChartDataCache = { users: users || [] }; // Update cache
+      renderOrgChart(users); // Render with fetched data
+  } catch (error) {
+      console.error("Error loading data for Org Chart:", error);
+      orgChartContainer.innerHTML = `<p class="message error-message">Failed to load Org Chart data: ${escapeHtml(error.message)}</p>`;
+      orgChartDataCache = null; // Clear cache on error
+  }
+}
+
+function renderOrgChart(users) {
+   // Renders the Vis Network chart using the provided user data.
+   orgChartContainer.innerHTML = ''; // Clear loading/previous chart
+  if (!users || !users.length) { orgChartContainer.innerHTML = '<p class="message">No employee data to render chart.</p>'; return; }
+
+  const { nodes, edges } = transformUserDataForChart(users); // Prepare data structure
+  if (!nodes.length) { orgChartContainer.innerHTML = '<p class="message">Could not process user data for chart.</p>'; return; }
+
+  const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+  // Vis Network options for hierarchical layout
+  const options = {
+      layout: { hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed', levelSeparation: 100, nodeSpacing: 150, treeSpacing: 180 } },
+      physics: { enabled: false }, // Disable physics for static layout
+      nodes: { borderWidth: 1, font: { size: 12, color: '#eee', multi: 'html', align: 'center' } }, // Allow HTML in titles
+      edges: { width: 1, color: { color: '#848484', highlight: '#ffffff' }, smooth: { enabled: true, type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 } },
+      interaction: { tooltipDelay: 200, hover: true, navigationButtons: true, keyboard: true } // Enable interactions
+  };
+
+  if (orgChart) { orgChart.destroy(); } // Destroy previous instance if exists
+  try {
+      // Create and store the new network instance
+      orgChart = new vis.Network(orgChartContainer, data, options);
+      console.log("[UI] Org Chart rendered.");
+
+      // Add event listener for node selection
+      orgChart.on("selectNode", function (params) {
+           if (params.nodes.length === 1) {
+              const selectedNodeId = params.nodes[0]; console.log(`[OrgChart] Node selected: ${selectedNodeId}`);
+              const listItem = employeeListEl.querySelector(`li[data-employee-id="${selectedNodeId}"]`);
+              // If a corresponding sidebar item exists and isn't already selected, activate it
+              if (listItem && selectedNodeId !== selectedEmpId) {
+                   document.querySelectorAll('.sidebar li').forEach(x=>x.classList.remove('active'));
+                   listItem.classList.add('active');
+                   selectedEmpId = selectedNodeId; // Update global state
+                   // Decide if clicking a node should switch back to task view:
+                   // switchView('tasks');
+              }
+          }
+      });
+      // Placeholder for hover events (e.g., showing live tasks)
+      orgChart.on("hoverNode", function (params) { /* TODO: Implement Live Task View logic */ });
+
+  } catch (err) {
+      // Handle errors during chart creation
+      console.error("Error creating Vis Network chart:", err);
+      orgChartContainer.innerHTML = `<p class="message error-message">Error rendering Org Chart.</p>`;
+      orgChart = null;
+  }
+}
+
+
+// -------------------- Card helpers ----------------------
+function createTaskCard(task){
+  // Creates the HTML structure for a single task card.
+  const taskDiv = document.createElement('div');
+  taskDiv.className = 'task'; // Apply task styling
+  taskDiv.id = `task-${task.task_id}`; // Set unique ID
+  // Store raw updates data on the element for potential use by WS handlers
+  taskDiv.dataset.updates = JSON.stringify(task.updates || []);
+
+  // Generate HTML parts using helper functions
+  const descriptionHtml = createDescriptionHtml(task.original_description);
+  const stepsHtml = createStepsHtml(task.steps, task.updates); // Pass updates to render interleaved
+  const generalUpdateHtml = createGeneralUpdateHtml(task.updates);
+  const datesHtml = createDatesHtml(task.created_at);
+
+  // Assemble the card's inner HTML
+  taskDiv.innerHTML = `
+      <h3>${escapeHtml(task.title)}${createStatusPill(task.status)}</h3>
+      ${descriptionHtml}
+      ${generalUpdateHtml}
+      <div class="task-steps-container">
+          <p><strong>Steps:</strong></p>
+          ${stepsHtml}
+      </div>
+      ${datesHtml}
+  `;
+
+  // Add the "Request Update" poll button
+  const pollBtn = document.createElement('button');
+  pollBtn.className = 'btn poll';
+  pollBtn.textContent = 'Request Update';
+  pollBtn.dataset.taskId = task.task_id;
+  pollBtn.onclick = e=>{ e.stopPropagation(); requestPoll(task.task_id, pollBtn); }; // Prevent card click
+  taskDiv.appendChild(pollBtn);
+
+  return taskDiv; // Return the complete card element
+}
+
+function createStatusPill(status){
+  // Creates the HTML for a status indicator pill.
+  const safeStatus = status?.toLowerCase().replace(/ /g,'_') || 'unknown';
+  const statusText = status || 'unknown';
+  return `<span class="status-pill ${safeStatus}" data-status="${statusText}">${escapeHtml(statusText)}</span>`;
+}
+
+function createDescriptionHtml(description){
+  // Creates the HTML for the task description paragraph, if it exists.
+  return description ? `<p><strong>Description:</strong> ${escapeHtml(description)}</p>` : '';
+}
+
+function createGeneralUpdateHtml(updates) {
+  // Creates the HTML section for general task updates (not tied to a specific step).
+  const generalUpdates = (updates || []).filter(upd => upd.step_number === null);
+  if (!generalUpdates.length) { return '<div class="general-task-update-placeholder" style="display: none;"></div>'; } // Placeholder if no updates
+
+  let html = '<div class="general-task-update"><p><strong>General Updates:</strong></p>';
+  // Sort updates chronologically before rendering
+  generalUpdates.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  generalUpdates.forEach(upd => { html += createUpdateItemHtml(upd, 'p'); }); // Render each update
+  html += '</div>';
+  return html;
+}
+
+function createStepsHtml(steps, updates){
+  // Creates the HTML ordered list for task steps, including interleaved updates.
+  if(!steps || !steps.length || (steps.length===1 && steps[0].step_number===null)){
+      return '<div class="task-steps-placeholder"><p><em>No steps defined yet.</em></p></div>'; // Placeholder if no steps
+  }
+  // Group updates by step number
+  const updatesByStep = (updates || []).reduce((acc, upd) => {
+      if (upd.step_number !== null) {
+          if (!acc[upd.step_number]) acc[upd.step_number] = [];
+          acc[upd.step_number].push(upd);
+      }
+      return acc;
+  }, {});
+  // Sort updates within each step group
+  Object.values(updatesByStep).forEach(stepUpdates => {
+      stepUpdates.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  });
+
+  let html = '<ol class="task-steps">';
+  // Sort steps by number and render each one
+  (steps || []).sort((a, b) => (a.step_number || 0) - (b.step_number || 0)).forEach(s => {
+    const safeDesc = escapeHtml(s.description);
+    const stepStatus = escapeHtml(s.status || 'pending');
+    const isInterruption = s.is_interruption === 1; // Check flag
+    const stepUpdates = updatesByStep[s.step_number] || [];
+    const stepClass = isInterruption ? ' class="interruption-step"' : ''; // Apply class
+    const stepPrefix = isInterruption ? '⚡ ' : ''; // Apply prefix
+
+    html += `<li data-step-number="${s.step_number}"${stepClass}>`; // Add class to li
+    html += `<span class="step-description">${stepPrefix}[${stepStatus}] ${safeDesc}</span>`; // Add prefix
+    // Render updates associated with this step
+    if (stepUpdates.length > 0) {
+      html += '<ul class="step-updates-list">';
+      stepUpdates.forEach(upd => { html += createUpdateItemHtml(upd, 'li'); });
+      html += '</ul>';
+    }
+    html += `</li>`;
+  });
+  html += '</ol>';
+  return html;
+}
+
+function createUpdateItemHtml(updateData, tagName = 'li') {
+  // Creates the HTML for a single update item (used for both general and step-specific updates).
+  const updateText = escapeHtml(updateData.update_text || '[No Text]');
+  const updateTimestamp = updateData.created_at ? new Date(updateData.created_at).toLocaleString() : 'Unknown time';
+  const dataAttr = updateData.update_id ? `data-update-id="${updateData.update_id}"` : ''; // Add update ID if available
+  return `<${tagName} class="update-item" ${dataAttr}><strong>(${updateTimestamp}):</strong> ${updateText}</${tagName}>`;
+}
+
+function createDatesHtml(createdAt){
+  // Creates the HTML for the task creation date display.
+  const createdDate = createdAt ? new Date(createdAt).toLocaleString() : 'N/A';
+  return `<p style="font-size:0.8em;color:#888;margin-top:15px;">Created: ${createdDate}</p>`;
+}
+
+
+// -------------------- Poll Request ----------------------
+async function requestPoll(taskId, btn){
+  // Sends a request to the backend to poll the employee for an update on a specific task.
+  console.log(`Requesting poll for task: ${taskId}`);
+  if(btn) btn.disabled = true; // Disable button temporarily
+  try{
+    await fetchJSON(`/api/task/${taskId}/poll`,{method:'POST',headers:{'Content-Type':'application/json'}});
+    alert('Poll request sent.'); // User feedback
+    setTimeout(()=>{ if(btn) btn.disabled=false; },2000); // Re-enable button after delay
+  }catch(e){
+    console.error('requestPoll Error:',e);
+    alert(`Error sending poll request: ${e.message}`); // Show error
+    if(btn) btn.disabled=false; // Re-enable button on error
+  }
+}
+
+// -------------------- WebSocket ----------------------
+function setWsIndicator(status){
+  // Updates the visual indicator for the WebSocket connection status.
+  wsIndicator.className=''; // Clear previous classes
+  if(status==='connected') wsIndicator.classList.add('connected');
+  else if(status==='connecting') wsIndicator.classList.add('connecting');
+  else if(status==='error') wsIndicator.classList.add('error');
+  wsIndicator.title = `WebSocket Status: ${status}`; // Update tooltip
+}
+
+function initAdminWS(){
+  // Initializes the WebSocket connection for the admin dashboard.
+  if (window.adminWS && (window.adminWS.readyState === WebSocket.OPEN || window.adminWS.readyState === WebSocket.CONNECTING)) {
+    console.log("[Admin WS] Connection already open or opening."); return;
+  }
+  const proto = location.protocol==='https:'?'wss:':'ws:'; // Determine protocol
+  const url = `${proto}//${location.hostname}:3001`; // Construct URL
+  console.log(`[Admin WS] Attempting connection to ${url}`);
+  setWsIndicator('connecting'); // Update indicator
+  adminWS = new WebSocket(url); window.adminWS = adminWS; // Assign to global scope
+
+  // --- WebSocket Event Handlers ---
+  adminWS.onopen = ()=>{
+    console.log('[Admin WS] Connection opened. Sending auth...');
+    adminWsReconnectAttempts = 0; // Reset reconnect attempts on successful open
+    adminWS.send(JSON.stringify({type:'auth',token})); // Send auth token
+    setWsIndicator('connected'); // Update indicator
+  };
+
+  adminWS.onerror = e=>{
+    console.error('[Admin WS] Error:', e);
+    setWsIndicator('error'); // Update indicator on error
+  };
+
+  adminWS.onclose = e=>{
+    console.log(`[Admin WS] Connection closed. Code: ${e.code}, Clean: ${e.wasClean}`);
+    adminWS = null; window.adminWS = null; // Clear global reference
+    setWsIndicator(e.code === 1000 ? 'disconnected' : 'error'); // Update indicator
+    // Attempt to reconnect if closure was not clean or intentional
+    if(e.code !== 1000 && e.code !== 1005){ // 1000=Normal, 1005=No Status Recvd
+      adminWsReconnectAttempts++;
+      if(adminWsReconnectAttempts <= MAX_ADMIN_WS_RECONNECT_ATTEMPTS){
+        console.log(`[Admin WS] Reconnecting attempt ${adminWsReconnectAttempts}/${MAX_ADMIN_WS_RECONNECT_ATTEMPTS}...`);
+        setTimeout(initAdminWS, ADMIN_WS_RECONNECT_DELAY_MS); // Schedule reconnect
+      } else {
+        console.error('[Admin WS] Max reconnect attempts reached.');
+        alert('Live updates disconnected. Please refresh the page.'); // Notify user
+      }
+    } else {
+      adminWsReconnectAttempts = 0; // Reset attempts on clean closure
+    }
+  };
+
+  adminWS.onmessage = e=>{
+    // Handles incoming messages from the WebSocket server.
+    let msg; try{msg=JSON.parse(e.data);}catch{console.error('[Admin WS] Bad JSON:',e.data);return;}
+    console.log('[Admin WS] Received:', msg);
+
+    // --- Authentication Response ---
+    if(msg.type==='auth_success'){ console.log('[Admin WS] Auth successful.'); setWsIndicator('connected'); return; }
+    if(msg.type==='auth_failed'){ console.error('[Admin WS] Auth failed:', msg.error); setWsIndicator('error'); alert(`WS auth failed: ${msg.error || 'Reason unknown'}`); if (adminWS) adminWS.close(1008, 'Auth Failed'); return; }
+
+    // --- Handle PROFILE Updated ---
+    if (msg.type === 'profile_updated') {
+        console.log(`[Admin WS] Profile updated for user ${msg.user?.id}. Invalidating cache.`);
+        orgChartDataCache = null; // Invalidate org chart data cache
+        // If org chart view is active, reload and re-render it
+        if (currentView === 'orgchart') {
+             console.log("[Admin WS] Org chart view active, reloading data...");
+             loadAndRenderOrgChart(); // Trigger reload and render
+        }
+        // Update the user's display in the sidebar list
+        const listItem = employeeListEl.querySelector(`li[data-employee-id="${msg.user?.id}"]`);
+        if (listItem && msg.user) {
+             const titleText = msg.user.job_title ? ` - ${escapeHtml(msg.user.job_title)}` : '';
+             listItem.textContent = `${escapeHtml(msg.user.email)} (${escapeHtml(msg.user.role)}${titleText})`;
+             // Update tooltip on sidebar item with latest info
+             listItem.title = `ID: ${msg.user.id}\nRole: ${msg.user.role}${msg.user.job_title ? `\nTitle: ${escapeHtml(msg.user.job_title)}` : ''}${msg.user.team_name ? `\nTeam: ${escapeHtml(msg.user.team_name)}` : ''}${msg.user.manager_id ? `\nManager ID: ${msg.user.manager_id}` : '\n(No Manager)'}`;
+        }
+        // Don't necessarily return, other handlers might need to run (unlikely for this specific message type)
+    }
+
+
+    // --- Handle Other Task Events ---
+    const relevantEmployeeId = msg.employeeId;
+    const taskId = msg.taskId || msg.task_id;
+    // Find the task card element (might not exist if not in task view or filtered out)
+    const taskCard = taskId ? document.getElementById(`task-${taskId}`) : null;
+
+    // --- NEW Task Created ---
+    if (msg.type === 'new_task_created') {
+        console.log(`[Admin WS Debug] New task created event for employee ${relevantEmployeeId}`);
+        // Add card only if in task view, employee matches, and filter allows 'pending'
+        if (currentView === 'tasks' && relevantEmployeeId == selectedEmpId) {
+             if (currentStatusFilter === 'all' || currentStatusFilter === 'pending') {
+                console.log(`[Admin WS Debug] Task matches filter. Creating card for task ${taskId}`);
+                if (!document.getElementById(`task-${taskId}`)) { // Avoid duplicates
+                    const newTaskCard = createTaskCard(msg); // Create card from message data
+                    taskListEl.insertBefore(newTaskCard, taskListEl.firstChild); // Add to top of list
+                    console.log(`[Admin WS Debug] Added new task card ${taskId}.`);
+                } else { console.log(`[Admin WS Debug] Task card ${taskId} already exists.`); }
+             } else { console.log(`[Admin WS Debug] New task ${taskId} doesn't match filter ('${currentStatusFilter}').`); }
+        } else { console.log(`[Admin WS Debug] New task created for non-selected employee or view is not 'tasks'.`); }
+        return; // Handled this message type
+    }
+
+    // --- Handle updates only if the card exists ---
+    if (!taskCard) {
+        // Log if an update was received for a task not currently displayed
+        if (['task_steps_saved', 'task_status_updated', 'task_update_received'].includes(msg.type)) {
+             console.log(`[Admin WS] Received ${msg.type} for task ${taskId}, but card not visible.`);
+        }
+        // Don't return yet, let poll_responded or other non-card messages through if needed below
+    }
+
+    // --- Task Steps Saved ---
+    if(taskCard && msg.type==='task_steps_saved'){
+        console.log(`[Admin WS Debug] Steps saved for task ${taskId}`);
+        if(relevantEmployeeId == selectedEmpId){ // Check if employee matches selected
+             // Update status pill
+             const statusPill = taskCard.querySelector('.status-pill');
+             if (statusPill && msg.status) {
+                 const newStatusClass = msg.status.toLowerCase().replace(/ /g, '_');
+                 statusPill.className = `status-pill ${newStatusClass}`;
+                 statusPill.textContent = escapeHtml(msg.status);
+                 statusPill.dataset.status = msg.status;
+             }
+             // Update steps list
+             const stepsContainer = taskCard.querySelector('.task-steps-container');
+             if (stepsContainer && msg.steps) {
+                 const currentUpdates = JSON.parse(taskCard.dataset.updates || '[]');
+                 stepsContainer.innerHTML = `<p><strong>Steps:</strong></p>${createStepsHtml(msg.steps, currentUpdates)}`;
+             }
+             // Check if the task's new status requires removal due to filtering
+             if (currentView === 'tasks' && msg.status === 'in_progress' && currentStatusFilter !== 'all' && currentStatusFilter !== 'in_progress') {
+                 console.log(`[Admin WS Debug] Removing task card ${taskId} because status changed to 'in_progress' and filter is '${currentStatusFilter}'.`);
+                 taskCard.remove();
+             }
+        } else { console.log(`[Admin WS Debug] Steps saved for task ${taskId}, but employee mismatch. No UI update.`); }
+    }
+    // --- Task Status Updated ---
+    else if(taskCard && msg.type==='task_status_updated'){
+        console.log(`[Admin WS Debug] Status updated for task ${taskId} to ${msg.status}`);
+        if(relevantEmployeeId == selectedEmpId){ // Check if employee matches selected
+             // Update status pill
+             const statusPill = taskCard.querySelector('.status-pill');
+             if (statusPill && msg.status) {
+                 const newStatusClass = msg.status.toLowerCase().replace(/ /g, '_');
+                 statusPill.className = `status-pill ${newStatusClass}`;
+                 statusPill.textContent = escapeHtml(msg.status);
+                 statusPill.dataset.status = msg.status;
+             }
+             // Check if the task should be removed due to the filter
+             if (currentView === 'tasks' && currentStatusFilter !== 'all' && msg.status !== currentStatusFilter) {
+                 console.log(`[Admin WS Debug] Removing task card ${taskId} because status changed to '${msg.status}' and filter is '${currentStatusFilter}'.`);
+                 taskCard.remove();
+             }
+        } else { console.log(`[Admin WS Debug] Status updated for task ${taskId}, but employee mismatch. No UI update.`); }
+    }
+    // --- Task Update Received ---
+    else if(taskCard && msg.type==='task_update_received'){
+        console.log(`[Admin WS Debug] Update received for task ${taskId}`);
+        if (relevantEmployeeId == selectedEmpId) { // Check if employee matches selected
+            // Update the stored data on the card element
+            const currentUpdates = JSON.parse(taskCard.dataset.updates || '[]');
+            const newUpdateData = {
+                 update_id: msg.update_id || `ws-${Date.now()}`, task_id: taskId,
+                 step_number: msg.stepNumber !== undefined ? msg.stepNumber : null,
+                 update_text: msg.updateText || '[Missing update text]',
+                 created_at: msg.timestamp || new Date().toISOString()
+             };
+            currentUpdates.push(newUpdateData);
+            taskCard.dataset.updates = JSON.stringify(currentUpdates); // Update stored data
+
+            // Generate HTML for the new update item
+            const newUpdateHtml = createUpdateItemHtml(newUpdateData);
+
+            // Append the new update HTML to the correct location (general or step-specific list)
+            if (newUpdateData.step_number !== null) {
+                 // Append to specific step's update list
+                 const stepLi = taskCard.querySelector(`.task-steps li[data-step-number="${newUpdateData.step_number}"]`);
+                 if (stepLi) {
+                     let updatesList = stepLi.querySelector('.step-updates-list');
+                     if (!updatesList) { // Create list if it doesn't exist
+                         updatesList = document.createElement('ul');
+                         updatesList.className = 'step-updates-list';
+                         stepLi.appendChild(updatesList);
+                     }
+                     updatesList.insertAdjacentHTML('beforeend', newUpdateHtml); // Append new update
+                     console.log(`[Admin WS Debug] Inserted update for step ${newUpdateData.step_number}`);
+                 } else { console.warn(`[Admin WS Debug] Step li ${newUpdateData.step_number} not found for update.`); }
+            } else {
+                 // Append to general updates section
+                 let updateContainer = taskCard.querySelector('.general-task-update');
+                 let placeholder = taskCard.querySelector('.general-task-update-placeholder');
+                 // If container doesn't exist, use/convert placeholder
+                 if (!updateContainer && placeholder) {
+                      updateContainer = placeholder; updateContainer.className = 'general-task-update';
+                      placeholder.style.display = ''; updateContainer.innerHTML = '<p><strong>General Updates:</strong></p>';
+                      console.log('[Admin WS Debug] Using placeholder for general update.');
+                 }
+                  if (updateContainer) {
+                      updateContainer.insertAdjacentHTML('beforeend', newUpdateHtml); // Append new update
+                      console.log(`[Admin WS Debug] Inserted general update.`);
+                  } else { console.warn('[Admin WS Debug] General update container/placeholder not found.'); }
+            }
+        } else { console.log(`[Admin WS Debug] Update received for task ${taskId}, but employee mismatch. No UI update.`); }
+    }
+    // --- Poll Responded ---
+    else if (msg.type === 'poll_responded') {
+        console.log(`[Admin WS] Poll ${msg.pollId} responded for task ${taskId}`);
+        // Optionally add visual feedback, e.g., remove highlighting from the task card if it was highlighted for the poll
+    }
+    // --- Ignore profile_updated as it was handled earlier ---
+    // --- Log other unhandled message types ---
+    else if (msg.type !== 'profile_updated') {
+        console.log("[Admin WS] Received unhandled message type:", msg.type);
+    }
+  }; // End onmessage
+} // End initAdminWS
+
+</script>
+</body>
+</html>
+

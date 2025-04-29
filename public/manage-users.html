@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Manage Users – Company Agents</title>
+  <style>
+    body{margin:0;font-family:sans-serif;background:#0e0e0e;color:#eee;display:flex;flex-direction:column;height:100vh}
+    .navbar{background:#222;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #09f;flex-shrink:0}
+    .navbar-brand{color:#eee;text-decoration:none;font-weight:bold}
+    .navbar-links a{color:#ccc;text-decoration:none;margin-left:15px;font-size:.9em}
+    .navbar-links a:hover{color:#fff}
+    .logout-btn{background:none;border:none;color:#f66;cursor:pointer;margin-left:15px;font-size:.9em;padding:0}
+    .logout-btn:hover{color:#f88}
+    .container{flex:1;display:flex;overflow:hidden}
+    .users-panel{width:320px;background:#181818;border-right:1px solid #333;display:flex;flex-direction:column}
+    .users-header{padding:10px 15px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+    .users-header h2{margin:0;font-size:1em;color:#09f}
+    .user-list{flex:1;overflow-y:auto}
+    .user-item{padding:10px 15px;border-bottom:1px solid #222}
+    .user-item:nth-child(odd){background:#1f1f1f}
+    .user-item span{display:block;font-size:.85em;color:#aaa}
+    .panel{flex:1;padding:20px;overflow-y:auto}
+    .field{margin-bottom:12px}
+    .field label{display:block;font-size:.9em;margin-bottom:4px;color:#ccc}
+    .field input{width:100%;padding:8px;border:1px solid #444;border-radius:4px;background:#333;color:#eee;box-sizing:border-box}
+    .btn{padding:8px 14px;border:none;border-radius:4px;cursor:pointer;font-size:.9em}
+    .btn.primary{background:#09f;color:#fff}
+    .btn.primary:hover{background:#07d}
+    .error{color:#f55;font-size:.85em;margin-top:6px;height:1em}
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="navbar-brand">Company Agents – Management</a>
+    <div class="navbar-links">
+      <a href="/admin.html">Dashboard</a>
+      <span id="user-info"></span>
+      <button class="logout-btn" id="logout-btn">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="users-panel">
+      <div class="users-header"><h2>Employees</h2><button class="btn primary" id="refresh-btn">⟳</button></div>
+      <div class="user-list" id="user-list"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Create New Employee</h2>
+      <div class="field"><label for="email">Email</label><input id="email" type="email" placeholder="employee@company.com" /></div>
+      <div class="field"><label for="password">Password</label><input id="password" type="password" /></div>
+      <button class="btn primary" id="create-btn">Create Employee</button>
+      <div class="error" id="error-msg"></div>
+    </div>
+  </div>
+
+<script>
+const token = localStorage.getItem('token');
+if(!token) location.href = '/login.html';
+
+function decode(tok){try{return JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));}catch{ return null; }}
+const payload = decode(token);
+if(!payload || !(payload.role==='CEO'||payload.role==='PM')) location.href = '/';
+
+document.getElementById('user-info').textContent = `${payload.email} (${payload.role})`;
+document.getElementById('logout-btn').onclick = ()=>{localStorage.removeItem('token');location.href='/login.html';};
+
+// helper fetch
+async function api(url, opts={}){
+  opts.headers = {...(opts.headers||{}), Authorization:`Bearer ${token}`};
+  const r = await fetch(url, opts);
+  if(!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+// list users
+async function loadUsers(){
+  const list = document.getElementById('user-list');
+  list.innerHTML = 'Loading…';
+  try{
+    const users = await api('/api/users');
+    list.innerHTML='';
+    users.forEach(u=>{
+      const div=document.createElement('div');
+      div.className='user-item';
+      div.innerHTML = `<strong>${u.email}</strong><span>${u.role}</span>`;
+      list.appendChild(div);
+    });
+  }catch(e){list.innerHTML = `<p class="error">${e.message}</p>`;}
+}
+
+document.getElementById('refresh-btn').onclick = loadUsers;
+loadUsers();
+
+// create employee
+const emailInput = document.getElementById('email');
+const pwdInput   = document.getElementById('password');
+const errMsg     = document.getElementById('error-msg');
+
+document.getElementById('create-btn').onclick = async ()=>{
+  errMsg.textContent='';
+  const email=emailInput.value.trim();
+  const pwd  =pwdInput.value;
+  if(!email || !pwd){errMsg.textContent='Email & password required';return;}
+  try{
+    await api('/api/admin/create-employee',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, password: pwd })
+    });
+    emailInput.value=''; pwdInput.value='';
+    await loadUsers();
+    alert('Employee created');
+  }catch(e){errMsg.textContent = e.message;}
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,620 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>CEO Agent Activity Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Styles specific to this dashboard, copied from original */
+    body { font-family: sans-serif; margin: 0; background: #111; color: #eee; display: flex; flex-direction: column; min-height: 100vh;} /* Ensure flex column layout */
+    /* --- Navigation Bar (from styles.css, included for clarity) --- */
+    .navbar { background-color: #222; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #09f; flex-shrink: 0; }
+    .navbar-brand { color: #eee; text-decoration: none; font-weight: bold; font-size: 1.2em; }
+    .navbar-links { display: flex; align-items: center; gap: 15px; }
+    .navbar-links a { color: #ccc; text-decoration: none; font-size: 0.9em; }
+    .navbar-links a:hover { color: #fff; }
+    .navbar-user { color: #aaa; font-size: 0.9em; margin-right: 5px; }
+    .logout-btn { background: none; border: none; color: #f66; cursor: pointer; font-size: 0.9em; padding: 0; }
+    .logout-btn:hover { color: #f88; }
+    /* --- Page Content --- */
+     .content-wrapper { flex-grow: 1; overflow-y: auto; /* Allow content to scroll */}
+    .content-container { padding: 20px; }
+    h1 { color: #09f; border-bottom: 1px solid #444; padding-bottom: 10px; margin-top: 0; font-size: 1.5em; }
+    #workers { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 20px; }
+    /* --- Card Styles --- */
+    .card { background: #282828; padding: 15px; border-radius: 8px; width: 280px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; flex-direction: column; min-height: 150px; transition: opacity 0.5s ease-out; border-left: 4px solid #555; /* Default border */}
+    .card.status-processing { border-left-color: #09f; }
+    .card.status-complete { border-left-color: #1a931a; }
+    .card.status-error { border-left-color: #f55; }
+
+    .card-header { font-size: 0.8em; color: #aaa; margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+    .card-header strong { color: #ccc; }
+    .card-title { font-weight: bold; color: #eee; margin-bottom: 10px; font-size: 1.1em; word-wrap: break-word; }
+    .card-content { flex-grow: 1; font-size: 0.9em; max-height: 250px; overflow-y: auto; /* Limit content height and allow scroll */}
+    .card-content p { margin: 0 0 8px 0; }
+    /* Styling for code/response blocks */
+    .card-content pre { background: #1e1e1e; padding: 8px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em; max-height: 150px; overflow-y: auto; border: 1px solid #333; margin-top: 5px; }
+    .status-line { font-size: 0.85em; color: #bbb; margin-top: auto; padding-top: 10px; border-top: 1px solid #444; /* Separator */}
+    .error-message { color: #f55; font-weight: bold; background: #422; padding: 5px; border-radius: 3px; margin-top: 5px; font-size: 0.85em;}
+    /* Progress Bar */
+    .progress-bar { width: 100%; height: 6px; background: #444; border-radius: 3px; overflow: hidden; margin-top: 5px; margin-bottom: 5px; }
+    .progress-fill { height: 100%; background: #09f; width: 0%; transition: width 0.3s ease-in-out; }
+    /* Make faded cards less prominent, but still interactive */
+    .fade-out { opacity: 0.6; border-left-color: #777 !important; /* Override status border */ }
+    /* Message Area */
+    .message-area { text-align: center; padding: 30px; color: #aaa; width: 100%; /* Ensure it takes full width */}
+
+    /* Status Pill Styles */
+     .status-pill {
+        display: inline-block;
+        padding: 2px 6px; /* Slightly smaller padding for header */
+        border-radius: 10px;
+        font-size: 0.75em; /* Smaller font */
+        color: white;
+        text-transform: capitalize;
+        margin-left: 8px; /* Space from title */
+        vertical-align: middle; /* Align with title */
+        line-height: 1.2; /* Adjust line height */
+     }
+     .status-pill.pending { background-color: #aaa; color: #333; }
+     .status-pill.in_progress { background-color: #07a; }
+     .status-pill.stuck { background-color: #d35400; }
+     .status-pill.complete { background-color: #27ae60; }
+     .status-pill.unknown { background-color: #555; }
+     .status-pill.chat { background-color: #8e44ad; } /* Example for chat */
+  </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <a href="/admin.html" class="navbar-brand">Company Agents – Admin Dashboard</a>
+        <div class="navbar-links">
+          <span class="navbar-user" id="user-info">Loading...</span>
+          <a href="/manage-users.html">Manage Users</a>
+          <a href="/dashboard.html">Agent Activity</a>
+          <a href="/status-dashboard.html">Status Dashboard</a>
+          <a href="/task-table-dashboard.html">Task Table</a>
+          <span id="ws-indicator" title="WebSocket Connection Status"></span>
+          <button class="logout-btn" id="logout-button">Logout</button>
+        </div>
+      </nav>
+
+  <div class="content-wrapper">
+      <div class="content-container">
+        <h1>👑 Live Agent Activity Feed</h1>
+        <div id="workers">
+            <p id="ws-status-message" class="message-area">Connecting to activity feed...</p>
+        </div>
+      </div>
+
+      <div class="content-container" style="margin-top: 30px; border-top: 1px solid #444; padding-top: 20px;">
+          <h2>Task Analytics</h2>
+          <div class="chart-controls" style="margin-bottom: 15px;">
+              <button class="btn" id="chart-view-trends">Task Trends (Time)</button>
+              <button class="btn" id="chart-view-users">User Comparison (Tasks)</button>
+          </div>
+          <div id="chart-container" style="height: 350px; width: 100%; max-width: 90vw; margin:auto; background: #202020; border-radius: 8px; padding: 10px;">
+              <canvas id="taskChart"></canvas>
+          </div>
+      </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+  <script>
+    // --- Globals ---
+    const token = localStorage.getItem('token');
+    const userInfoEl = document.getElementById('user-info');
+    const logoutButton = document.getElementById('logout-button');
+    const workersContainer = document.getElementById('workers');
+    const wsStatusMsg = document.getElementById('ws-status-message');
+    const wsIndicator = document.getElementById('ws-indicator'); // Added WS indicator element
+
+    // --- State Variables ---
+    const agentCards = {}; // Store card elements keyed by unique ID (taskId or agentId)
+    const latestCardByEmployee = {}; // Store the latest cardId per employeeId { employeeId: cardId }
+    let currentUserPayload = null; // Store decoded payload globally
+    let wsConnection = null; // Store WebSocket connection
+
+    // --- Helper function to escape HTML ---
+    function escapeHtml(unsafe) {
+        if (unsafe === null || typeof unsafe === 'undefined') return '';
+        return unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // --- Helper function to format minutes ---
+    function formatTime(minutes) {
+            if (minutes === null || minutes === undefined || isNaN(parseInt(minutes, 10))) return '?';
+            const totalMinutes = parseInt(minutes, 10);
+            if (totalMinutes < 1) return '0m';
+            if (totalMinutes < 60) return `${totalMinutes}m`;
+            const hours = Math.floor(totalMinutes / 60);
+            const remainingMinutes = totalMinutes % 60;
+            return `${hours}h${remainingMinutes > 0 ? ` ${remainingMinutes}m` : ''}`;
+        }
+
+     // --- Helper function to update steps display in a card ---
+     function updateCardSteps(card, steps) {
+         const contentEl = card.querySelector('.card-content');
+         if (!contentEl || !steps) return;
+         let stepsContainer = contentEl.querySelector('.steps-info');
+         if (!stepsContainer) {
+             stepsContainer = document.createElement('div');
+             stepsContainer.className = 'steps-info';
+             stepsContainer.style.marginTop = '10px';
+             stepsContainer.style.paddingTop = '5px';
+             stepsContainer.style.borderTop = '1px dashed #555';
+             contentEl.appendChild(stepsContainer);
+         }
+         let stepsHtml = '<p style="margin-bottom: 3px; font-size: 0.9em; color: #bbb;"><strong>Steps:</strong></p><ol class="task-steps" style="margin:0; padding-left: 20px; font-size: 0.85em;">';
+         steps.forEach(s => {
+             stepsHtml += `<li style="margin-bottom: 2px;">[${escapeHtml(s.status || 'pending')}] ${escapeHtml(s.description)}</li>`;
+         });
+         stepsHtml += '</ol>';
+         stepsContainer.innerHTML = stepsHtml;
+     }
+
+      // --- Helper function to update status pill in a card title ---
+      function updateCardStatus(card, newStatus) {
+          const titleEl = card.querySelector('.card-title');
+          if (!titleEl) return;
+          let statusPill = titleEl.querySelector('.status-pill');
+          if (!statusPill) {
+              statusPill = document.createElement('span');
+              titleEl.appendChild(document.createTextNode(' '));
+              titleEl.appendChild(statusPill);
+          }
+          const statusClass = (newStatus || 'unknown').toLowerCase().replace(/ /g, '_');
+          statusPill.className = 'status-pill'; // Reset base
+          statusPill.classList.add(statusClass);
+          statusPill.textContent = escapeHtml(newStatus || 'Unknown');
+
+          // Update card border
+          card.classList.remove('status-processing', 'status-complete', 'status-error');
+          if (newStatus === 'in_progress' || newStatus === 'chat') card.classList.add('status-processing');
+          else if (newStatus === 'complete') card.classList.add('status-complete');
+          else if (newStatus === 'stuck') card.classList.add('status-error');
+      }
+
+      // --- WS Indicator Helper ---
+      function setWsIndicator(status) {
+          if (!wsIndicator) return;
+          wsIndicator.className=''; // Clear previous classes
+          if(status === 'connected') wsIndicator.classList.add('connected');
+          else if(status === 'connecting') wsIndicator.classList.add('connecting');
+          else if(status === 'error') wsIndicator.classList.add('error');
+          else wsIndicator.classList.add('disconnected'); // Default for closed/other
+          wsIndicator.title = `WebSocket Status: ${status}`;
+       }
+
+    // --- Authentication & Initialization ---
+    function initializePage() {
+        // 1. Check if token exists
+        if (!token) {
+            console.log('No token found, redirecting to login.');
+            window.location.href = '/login.html';
+            return; // Stop execution
+        }
+
+        // 2. Basic token format check (Added)
+        if (!token.includes('.') || token.split('.').length !== 3) {
+            console.error('Invalid token format detected.');
+            userInfoEl.textContent = 'Error: Invalid token format.';
+            // Optional: remove invalid token and redirect
+            // localStorage.removeItem('token');
+            // window.location.href = '/login.html';
+            return; // Stop execution
+        }
+
+        // 3. Try decoding token (Modified Catch Block)
+        try {
+            const payloadBase64 = token.split('.')[1];
+            const decodedJson = atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'));
+            currentUserPayload = JSON.parse(decodedJson);
+
+            // Basic payload check
+            if (!currentUserPayload || !currentUserPayload.uid || !currentUserPayload.role || !currentUserPayload.cid) {
+                throw new Error("Decoded token is missing essential fields (uid, role, cid).");
+            }
+
+            // Check Role (Allow CEO or PM)
+            if (currentUserPayload.role !== 'CEO' && currentUserPayload.role !== 'PM') {
+                 console.warn(`User role '${currentUserPayload.role}' not authorized for this dashboard. Redirecting.`);
+                 // Redirect non-admin users appropriately
+                 window.location.href = currentUserPayload.role === 'EMP' ? '/employee.html' : '/login.html';
+                 return;
+            }
+
+            // Display user info
+            const userEmail = currentUserPayload.email || `User ${currentUserPayload.uid}`;
+            userInfoEl.textContent = `Logged in as: ${escapeHtml(userEmail)} (${escapeHtml(currentUserPayload.role)})`;
+
+            // Initialization successful, proceed with WS and Chart
+            initWebSocket();
+            initializeChart();
+            setupChartControls();
+            fetchAndUpdateChart('trends'); // Fetch initial chart data
+
+        } catch (error) {
+            // Handle decoding errors gracefully
+            console.error('Failed to decode or validate token:', error);
+            userInfoEl.textContent = 'Error loading user info. Please login again.';
+            userInfoEl.style.color = '#f55';
+            // **Removed aggressive token removal and redirect from here**
+            // Let subsequent API calls fail with 401 if the token is truly invalid server-side.
+            // Disable WS and Chart init on error
+            setWsIndicator('error');
+            // Optionally disable chart controls
+            document.querySelectorAll('.chart-controls button').forEach(btn => btn.disabled = true);
+        }
+    }
+
+    // --- Logout Button ---
+    logoutButton.addEventListener('click', () => {
+        if (wsConnection) { wsConnection.close(); }
+        localStorage.removeItem('token');
+        window.location.href = '/login.html';
+    });
+
+    // --- WebSocket Logic ---
+    function initWebSocket() {
+        if (!currentUserPayload) {
+            console.log("[WS] Skipping WebSocket init: No valid user payload.");
+            setWsIndicator('disconnected');
+            return;
+        }
+        if (wsConnection && (wsConnection.readyState === WebSocket.OPEN || wsConnection.readyState === WebSocket.CONNECTING)) {
+             console.log("[WS Dashboard] Connection already open or opening.");
+             return;
+        }
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsPort = 3001;
+        const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}`;
+        console.log(`[WS Dashboard] Connecting to ${wsUrl}`);
+        setWsIndicator('connecting');
+
+        wsConnection = new WebSocket(wsUrl);
+
+        wsConnection.onopen = () => {
+            console.log('[WS Dashboard] Connection established.');
+            wsStatusMsg.textContent = 'Connected to activity feed. Waiting for agent updates...';
+            wsStatusMsg.style.color = '#8f8';
+            setWsIndicator('connected');
+            // Send authentication message using the token
+            wsConnection.send(JSON.stringify({ type: 'auth', token: token }));
+        };
+
+        wsConnection.onerror = (error) => {
+            console.error('[WS Dashboard] Error:', error);
+            wsStatusMsg.textContent = 'Error connecting to activity feed. Live updates unavailable.';
+            wsStatusMsg.style.color = '#f55';
+             if (wsConnection) { wsConnection = null; }
+             setWsIndicator('error');
+        };
+
+        wsConnection.onclose = (event) => {
+            console.log('[WS Dashboard] Connection closed.', event.code, event.reason);
+             if (wsConnection) { wsConnection = null; }
+            wsStatusMsg.textContent = event.wasClean ? 'Disconnected from activity feed.' : 'Connection lost. Please refresh.';
+            wsStatusMsg.style.color = event.wasClean ? '#aaa' : '#f90';
+            wsStatusMsg.style.display = 'block'; // Show status message on close
+            setWsIndicator(event.code === 1000 ? 'disconnected' : 'error');
+             // Consider adding reconnection logic here if needed
+        };
+
+        // --- MODIFIED ONMESSAGE HANDLER ---
+        wsConnection.onmessage = ({ data }) => {
+            try {
+                const msg = JSON.parse(data);
+                console.log('[WS Dashboard] Received:', msg);
+
+                // Hide initial status message once updates start coming in
+                if (wsStatusMsg && wsStatusMsg.parentNode) {
+                    wsStatusMsg.style.display = 'none';
+                }
+
+                // Auth messages
+                if (msg.type === 'auth_success') { console.log('[WS Dashboard] Admin WS Authenticated.'); return; }
+                if (msg.type === 'auth_failed') {
+                    console.error('[WS Dashboard] Admin WS Auth Failed:', msg.error);
+                    setWsIndicator('error');
+                    alert(`WebSocket authentication failed: ${msg.error || 'Unknown reason'}. You may need to log in again.`);
+                    if (wsConnection) wsConnection.close();
+                     // Consider redirecting to login here
+                     // window.location.href = '/login.html';
+                    return;
+                }
+
+                // --- START: Card Identification & Management ---
+                const taskIdFromMsg = msg.taskId || msg.task_id || msg.data?.taskId;
+                const agentIdFromMsg = msg.agentId;
+                const cardId = taskIdFromMsg || agentIdFromMsg; // Use task ID first
+                const employeeId = msg.employeeId || msg.data?.employeeId;
+
+                if (!cardId) { // Ignore messages without a way to identify the card
+                    console.warn('[WS Dashboard] Ignoring message without cardId:', msg);
+                    return;
+                }
+
+                let card = agentCards[cardId];
+                let isNewCard = false;
+
+                // Create card if it doesn't exist
+                if (!card) {
+                    const canInitiateCard = ['status', 'new_task_created', 'agent_response', 'answer', 'error'].includes(msg.type);
+                    if (!canInitiateCard) {
+                        console.log(`[WS Dashboard] Ignoring message type '${msg.type}' for non-existent card ID: ${cardId}`);
+                        return; // Don't create card for messages that just update status/steps
+                    }
+
+                    isNewCard = true;
+                    card = document.createElement('div');
+                    card.className = 'card';
+                    card.id = `card-${cardId}`;
+                    agentCards[cardId] = card; // Store card reference
+
+                    const initialTitle = (msg.type === 'new_task_created' ? msg.title : null) || msg.data?.currentTask || 'Processing...';
+                    const initialTaskId = taskIdFromMsg || 'N/A';
+                    const initialAgentId = agentIdFromMsg || (taskIdFromMsg ? 'Pending...' : 'N/A');
+                    const initialEmployeeId = employeeId || 'N/A';
+
+                    card.innerHTML = `
+                        <div class="card-header">Agent: <strong class="agent-id">${escapeHtml(initialAgentId.substring(0,8)+(initialAgentId.length>8 ? '...' : ''))}</strong> | Employee: <strong class="employee-id">${escapeHtml(initialEmployeeId)}</strong> | Task: <strong class="task-id">${escapeHtml(initialTaskId)}</strong></div>
+                        <div class="card-title">${escapeHtml(initialTitle)}</div>
+                        <div class="card-content">
+                            ${msg.type === 'new_task_created' ? `<p><em>New task created.</em></p>` : ''}
+                        </div>
+                        <div class="status-line">
+                            <div class="progress-bar"><div class="progress-fill"></div></div>
+                            <span class="status-text">Waiting for status...</span>
+                        </div>
+                    `;
+                    workersContainer.prepend(card);
+                    console.log(`[WS Dashboard] Created new card for ID: ${cardId}`);
+
+                    // Manage latest card per employee (remove old one)
+                    if (employeeId) {
+                        const previousCardId = latestCardByEmployee[employeeId];
+                        if (previousCardId && previousCardId !== cardId) {
+                            const previousCard = agentCards[previousCardId];
+                            if (previousCard && previousCard.parentNode) {
+                                console.log(`[WS Dashboard] Removing old card ${previousCardId} for employee ${employeeId}.`);
+                                previousCard.remove();
+                                delete agentCards[previousCardId];
+                            }
+                        }
+                        latestCardByEmployee[employeeId] = cardId;
+                    }
+                     // Apply initial status pill
+                     if (msg.status) updateCardStatus(card, msg.status);
+                }
+
+                // Ignore updates for outdated cards
+                if (employeeId && cardId !== latestCardByEmployee[employeeId]) {
+                    console.log(`[WS Dashboard] Ignoring update for outdated card ${cardId}`);
+                    if (card && card.parentNode) card.remove();
+                    delete agentCards[cardId];
+                    return;
+                }
+                 // --- END: Card Identification & Management ---
+
+
+                // Get references to card elements for updating
+                const agentIdEl = card.querySelector('.agent-id');
+                const employeeIdEl = card.querySelector('.employee-id');
+                const taskIdEl = card.querySelector('.task-id');
+                const titleEl = card.querySelector('.card-title');
+                const contentEl = card.querySelector('.card-content');
+                const statusTextEl = card.querySelector('.status-text');
+                const progressFillEl = card.querySelector('.progress-fill');
+
+                // Update header fields if they were placeholders or N/A
+                if (msg.agentId && agentIdEl && (!agentIdEl.textContent || agentIdEl.textContent.startsWith('Pending'))) { agentIdEl.textContent = escapeHtml(msg.agentId.substring(0,8)+(msg.agentId.length>8 ? '...' : '')); }
+                if (employeeId && employeeIdEl && (!employeeIdEl.textContent || employeeIdEl.textContent === 'N/A')) { employeeIdEl.textContent = escapeHtml(employeeId); }
+                if (taskIdFromMsg && taskIdEl && (isNewCard || taskIdEl.textContent === 'N/A')) { taskIdEl.textContent = escapeHtml(taskIdFromMsg); }
+
+
+                // Update card based on incoming message type
+                card.classList.remove('fade-out'); // Make card prominent on any update
+
+                switch (msg.type) {
+                    case 'status': {
+                        const taskTitle = msg.data?.currentTask || titleEl?.textContent.replace(/<span.*span>/,'').trim() || 'Processing...';
+                        const progress = msg.data?.progressPct || 0;
+                        const detail = msg.data?.detail || '';
+
+                         if (titleEl && taskTitle !== 'Initializing...' && !titleEl.textContent.startsWith(taskTitle)) {
+                             const existingPill = titleEl.querySelector('.status-pill');
+                             titleEl.textContent = escapeHtml(taskTitle);
+                             if (existingPill) titleEl.appendChild(existingPill);
+                         }
+                        if (statusTextEl) statusTextEl.textContent = `Status: ${progress}%` + (detail ? ` - ${escapeHtml(detail)}` : '');
+                        if (progressFillEl) {
+                           progressFillEl.style.width = `${progress}%`;
+                           progressFillEl.style.backgroundColor = '#09f';
+                        }
+                        const isIdleOrComplete = progress === 100 || detail.toLowerCase().includes('complete') || detail.toLowerCase().includes('idle');
+                        card.classList.remove('status-processing', 'status-complete', 'status-error');
+                        if (isIdleOrComplete) {
+                            card.classList.add('status-complete');
+                            card.classList.add('fade-out');
+                        } else if (progress > 0) { card.classList.add('status-processing'); }
+                        break;
+                    }
+                    case 'agent_response':
+                    case 'answer': {
+                        if (!msg.employeeId || !msg.data?.answerText || !contentEl) break;
+                        const answerBlock = document.createElement('div');
+                        const llmUsed = msg.data?.llmUsed || 'N/A';
+                        answerBlock.innerHTML = `<p style="margin-bottom: 3px; color: #ccc;"><strong>Agent Response (${escapeHtml(llmUsed)}):</strong></p><pre>${escapeHtml(msg.data.answerText)}</pre>`;
+                        contentEl.appendChild(answerBlock);
+                        contentEl.scrollTop = contentEl.scrollHeight;
+                        break;
+                    }
+                     case 'agent_summary_json': {
+                         // Only display non-steps data here
+                         if (!msg.employeeId || !msg.data || !contentEl || msg.data.steps) break;
+                         const summaryBlock = document.createElement('div');
+                         const summaryData = JSON.stringify(msg.data, null, 2);
+                         summaryBlock.innerHTML = `<p style="margin-bottom: 3px; color: #aaa;"><strong>Structured Data:</strong></p><pre>${escapeHtml(summaryData)}</pre>`;
+                         contentEl.appendChild(summaryBlock);
+                         contentEl.scrollTop = contentEl.scrollHeight;
+                         break;
+                    }
+                    case 'error': {
+                        if (!msg.data?.message || !contentEl) break;
+                        const errorBlock = document.createElement('div');
+                        errorBlock.className = 'error-message';
+                         const errorLlm = msg.data?.llmUsed || 'N/A';
+                         errorBlock.innerHTML = `<strong>Error (${escapeHtml(errorLlm)}):</strong> ${escapeHtml(msg.data.message)}`;
+                         contentEl.appendChild(errorBlock);
+                         contentEl.scrollTop = contentEl.scrollHeight;
+                        if (statusTextEl) statusTextEl.textContent = 'Status: Error Occurred';
+                        if (progressFillEl) { progressFillEl.style.width = '100%'; progressFillEl.style.backgroundColor = '#f55'; }
+                        card.classList.remove('status-processing', 'status-complete');
+                        card.classList.add('status-error');
+                        break;
+                    }
+                    case 'task_steps_saved': {
+                        if(msg.taskId === cardId) {
+                           if (msg.steps) updateCardSteps(card, msg.steps);
+                           if (msg.status) updateCardStatus(card, msg.status);
+                           if (statusTextEl) {
+                                let statusDetail = `Status: Steps Added`;
+                                if (msg.estimate !== undefined) statusDetail += ` (Est: ${formatTime(msg.estimate)})`;
+                                statusTextEl.textContent = statusDetail;
+                           }
+                        }
+                        break;
+                    }
+                    case 'task_status_updated': {
+                         if(msg.taskId === cardId && msg.status) {
+                             updateCardStatus(card, msg.status);
+                             if (statusTextEl) statusTextEl.textContent = `Status: Updated to ${escapeHtml(msg.status)}`;
+                             const statusNote = document.createElement('p');
+                             statusNote.style.fontSize = '0.8em'; statusNote.style.marginTop = '5px'; statusNote.style.color = '#aaa';
+                             statusNote.innerHTML = `<i>Status changed by Emp ${escapeHtml(msg.employeeId)} at ${new Date(msg.timestamp || Date.now()).toLocaleTimeString()}.</i>`;
+                             if (contentEl) { contentEl.appendChild(statusNote); contentEl.scrollTop = contentEl.scrollHeight; }
+                              if (msg.status === 'complete') { card.classList.add('fade-out'); }
+                         }
+                         break;
+                    }
+                    case 'task_update_received': {
+                         if(msg.taskId === cardId && msg.updateText) {
+                              if (statusTextEl) statusTextEl.textContent = `Status: Update Received`;
+                             const updateBlock = document.createElement('div');
+                             updateBlock.style.marginTop = '5px';
+                             updateBlock.innerHTML = `<p style="margin-bottom: 3px; color: #aae; font-size:0.9em;"><strong>Emp ${escapeHtml(msg.employeeId)} Update (${new Date(msg.timestamp || Date.now()).toLocaleTimeString()}):</strong></p><pre style="background:#303030; font-size:0.85em;">${escapeHtml(msg.updateText)}</pre>`;
+                             if (contentEl) { contentEl.appendChild(updateBlock); contentEl.scrollTop = contentEl.scrollHeight; }
+                         }
+                         break;
+                    }
+                    case 'new_task_created': break; // Card creation handled above
+
+                    default:
+                        console.log(`[WS Dashboard] Unhandled message type for existing card: ${msg.type}`, msg);
+                }
+            } catch (error) {
+                console.error('[WS Dashboard] Failed to parse message or update UI:', error, 'Raw data:', data);
+            }
+        }; // End onmessage
+    } // End initWebSocket
+
+    // --- Charting Logic ---
+    let taskChart = null;
+
+    function initializeChart() {
+        const ctx = document.getElementById('taskChart').getContext('2d');
+        taskChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [] }, // Initialize empty
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { x: { type: 'time', time: { unit: 'day' }, grid: { color: '#444' }, ticks: { color: '#ccc' } }, y: { beginAtZero: true, grid: { color: '#444' }, ticks: { color: '#ccc' } } },
+                plugins: { legend: { labels: { color: '#ccc' } } }
+            }
+        });
+        console.log("[Chart] Initialized Chart instance.");
+    }
+
+    function setupChartControls() {
+        const btnTrends = document.getElementById('chart-view-trends');
+        const btnUsers = document.getElementById('chart-view-users');
+        btnTrends.onclick = () => fetchAndUpdateChart('trends');
+        btnUsers.onclick = () => fetchAndUpdateChart('users');
+        console.log("[Chart] Setup chart control listeners.");
+    }
+
+    async function fetchAndUpdateChart(viewType) {
+        console.log(`[Chart] Fetching data for view: ${viewType}`);
+        if (!taskChart) { console.error("[Chart] Chart not initialized!"); return; }
+        if (!token) { console.error("[Chart] No auth token available for API call."); return; } // Check token
+
+        const chartContainer = document.getElementById('chart-container');
+        chartContainer.style.opacity = '0.5'; // Indicate loading
+
+        try {
+            let apiUrl = ''; let chartConfigUpdate = {};
+
+            if (viewType === 'trends') {
+                apiUrl = '/api/admin/task-trends?duration=week';
+                const trendData = await fetchJSON(apiUrl) || [];
+                trendData.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+                chartConfigUpdate = {
+                    type: 'line',
+                    data: { labels: trendData.map(d => d.timestamp), datasets: [{ label: 'Tasks Created/Completed Daily', data: trendData.map(d => d.count), borderColor: 'rgb(0, 153, 255)', backgroundColor: 'rgba(0, 153, 255, 0.2)', tension: 0.1, fill: true }] },
+                    options: { scales: { x: { type: 'time', time: { unit: 'day' }, grid: {color: '#444'}, ticks: {color: '#ccc'} }, y: { beginAtZero: true, grid: {color: '#444'}, ticks: {color: '#ccc'} } } }
+                };
+            } else if (viewType === 'users') {
+                apiUrl = '/api/admin/user-activity?duration=week&metric=task_count';
+                const userData = await fetchJSON(apiUrl) || [];
+                userData.sort((a,b) => b.value - a.value);
+                chartConfigUpdate = {
+                    type: 'bar',
+                    data: { labels: userData.map(d => d.employeeName || `User ${d.employeeId}`), datasets: [{ label: 'Tasks Created/Completed (Last Week)', data: userData.map(d => d.value), backgroundColor: [ 'rgba(0, 153, 255, 0.7)', 'rgba(255, 99, 132, 0.7)', 'rgba(75, 192, 192, 0.7)', 'rgba(255, 205, 86, 0.7)', 'rgba(153, 102, 255, 0.7)', 'rgba(255, 159, 64, 0.7)' ], borderColor: [ 'rgba(0, 153, 255, 1)', 'rgba(255, 99, 132, 1)', 'rgba(75, 192, 192, 1)', 'rgba(255, 205, 86, 1)', 'rgba(153, 102, 255, 1)', 'rgba(255, 159, 64, 1)' ], borderWidth: 1 }] },
+                    options: { indexAxis: 'x', scales: { x: { grid: {color: '#444'}, ticks: {color: '#ccc'} }, y: { beginAtZero: true, grid: {color: '#444'}, ticks: {color: '#ccc'} } }, plugins: { legend: { display: false } } }
+                };
+            } else { throw new Error(`Unknown viewType: ${viewType}`); }
+
+            // Update chart
+            taskChart.config.type = chartConfigUpdate.type;
+            taskChart.config.data = chartConfigUpdate.data;
+            taskChart.config.options = { ...taskChart.config.options, ...chartConfigUpdate.options };
+            taskChart.update();
+            console.log(`[Chart] Updated chart for view: ${viewType}`);
+
+        } catch (error) {
+            console.error(`[Chart] Failed to fetch or update chart for ${viewType}:`, error);
+            if (error.message.includes('401') || error.message.includes('403')) {
+                 alert("Authentication error fetching chart data. Please login again.");
+                 window.location.href = '/login.html';
+            }
+            // Display error message?
+        } finally {
+             chartContainer.style.opacity = '1';
+        }
+    }
+
+    // --- API Fetch Helper (using stored token) ---
+    async function fetchJSON(url, opts={}){
+      if (!token) throw new Error("No token available for API request."); // Ensure token exists
+      opts.headers = { ...(opts.headers||{}), Authorization:`Bearer ${token}` };
+      const r = await fetch(url, opts);
+      if(!r.ok){
+        let msg; try { msg = (await r.json()).error; } catch{ msg = `${r.status} ${r.statusText}`; }
+        const error = new Error(msg || `API Error: ${r.status}`);
+        error.status = r.status; // Attach status code
+        throw error;
+      }
+      if (r.status === 204) return null;
+      try { return await r.json(); } catch { return null; }
+    }
+
+    // --- Run Initialization ---
+    initializePage();
+
+  </script>
+</body>
+</html>

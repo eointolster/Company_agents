@@ -1,0 +1,563 @@
+/* styles.css */
+/* Shared styles for Company Agents application */
+
+/* --- Base & Responsive Font --- */
+html {
+    font-size: 16px; /* Base font size */
+  }
+  
+  @media (max-width: 1200px) {
+    html {
+      font-size: 15px; /* Slightly smaller on medium screens */
+    }
+  }
+  
+  @media (max-width: 768px) {
+    html {
+      font-size: 14px; /* Smaller on small screens */
+    }
+  }
+  
+  /* --- General Styles & Modernized UI --- */
+  body {
+    margin: 0;
+    /* Use a system font stack for better cross-platform consistency */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    background: linear-gradient(to bottom, #0e0e0e 0%, #1a1a1a 100%); /* Dark gradient background */
+    color: #eee; /* Light text color */
+    display: flex;
+    flex-direction: column;
+    height: 100vh; /* Full viewport height */
+    line-height: 1.5; /* Improved default line height */
+  }
+  
+  /* --- Custom Scrollbars (WebKit Browsers: Chrome, Safari, Edge) --- */
+  ::-webkit-scrollbar {
+    width: 10px; /* Width of vertical scrollbar */
+    height: 10px; /* Height of horizontal scrollbar */
+  }
+  ::-webkit-scrollbar-track {
+    background: #1a1a1a; /* Background of the scrollbar track */
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #444; /* Color of the scrollbar handle */
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #555; /* Color of the handle on hover */
+  }
+  /* Specific scrollbar for sidebar */
+  .sidebar::-webkit-scrollbar {
+    width: 6px; /* Narrower scrollbar for sidebar */
+  }
+  .sidebar::-webkit-scrollbar-thumb {
+    background: #333;
+  }
+  
+  /* --- Navbar --- */
+  .navbar {
+    background: linear-gradient(to bottom, #2a2a2a 0%, #222 100%); /* Navbar gradient */
+    padding: 10px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #09f; /* Accent border */
+    flex-shrink: 0; /* Prevent navbar from shrinking */
+    box-shadow: 0 2px 8px rgba(0, 0, 30, 0.2); /* Subtle shadow */
+  }
+  .navbar-brand {
+    color: #fff; /* Brighter brand text */
+    text-decoration: none;
+    font-weight: bold;
+    font-size: 1.3em;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: color 0.2s;
+  }
+  .navbar-brand:hover {
+    color: #09f; /* Highlight on hover */
+  }
+  .navbar-links {
+    display: flex;
+    align-items: center;
+    gap: 15px; /* Spacing between links */
+  }
+  .navbar-links span.navbar-user {
+    color: #aaa;
+    font-size: 0.9em;
+    margin-right: 5px;
+  }
+  .navbar-links a {
+    color: #ccc;
+    text-decoration: none;
+    font-size: .9em;
+    padding: 5px 10px; /* Padding for better click area */
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+  .navbar-links a:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.1); /* Subtle background on hover */
+  }
+  .logout-btn {
+    background: none;
+    border: none;
+    color: #f66; /* Reddish color for logout */
+    cursor: pointer;
+    font-size: .9em;
+    padding: 0;
+    margin-left: 5px;
+    transition: color 0.2s;
+  }
+  .logout-btn:hover {
+    color: #f88; /* Lighter red on hover */
+  }
+  
+  /* --- Main Layout Split --- */
+  .split {
+    flex: 1; /* Take remaining vertical space */
+    display: flex;
+    overflow: hidden; /* Prevent content overflow */
+  }
+  @media (max-width: 768px) {
+    .split {
+      flex-direction: column; /* Stack vertically on small screens */
+    }
+  }
+  
+  /* --- Sidebar --- */
+  .sidebar {
+    width: 250px;
+    background: linear-gradient(to right, #181818 0%, #1c1c1c 100%); /* Sidebar gradient */
+    border-right: 1px solid #333;
+    overflow-y: auto; /* Allow sidebar content to scroll */
+    flex-shrink: 0; /* Prevent sidebar from shrinking */
+    display: flex;
+    flex-direction: column;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2); /* Subtle shadow */
+  }
+  @media (max-width: 768px) {
+    .sidebar {
+      width: 100%; /* Full width on small screens */
+      max-height: 200px; /* Limit height */
+      border-right: none;
+      border-bottom: 1px solid #333;
+    }
+  }
+  .sidebar h2 {
+    margin: 0;
+    padding: 18px 15px; /* Increased padding */
+    border-bottom: 1px solid #333;
+    font-size: 1.1em; /* Slightly larger */
+    color: #09f; /* Accent color */
+    position: sticky; top: 0; /* Keep header visible on scroll */
+    background: linear-gradient(to bottom, #222 0%, #181818 100%); /* Match navbar */
+    z-index: 10; /* Ensure header is above list items */
+    letter-spacing: 0.5px;
+  }
+  .sidebar ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex-grow: 1; /* Allow list to take available space */
+    overflow-y: auto; /* Allow list itself to scroll if needed */
+  }
+  .sidebar li {
+    padding: 12px 15px;
+    border-bottom: 1px solid #222;
+    cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* Prevent long text wrapping */
+    transition: all 0.2s ease;
+    /* Animation properties */
+    animation: slideInFromLeft 0.3s ease-out forwards;
+    animation-delay: calc(0.05s * var(--item-index, 0)); /* Staggered animation */
+    opacity: 0; /* Start hidden for animation */
+  }
+  .sidebar li:hover {
+    background: #252525;
+    padding-left: 20px; /* Indent on hover */
+  }
+  .sidebar li.active {
+    background: linear-gradient(to right, rgba(9, 159, 255, 0.2) 0%, rgba(24, 24, 24, 0) 100%); /* Subtle gradient for active */
+    color: white;
+    border-left: 4px solid #09f; /* Accent border for active */
+    padding-left: 11px; /* Adjust padding for border */
+    font-weight: 500; /* Slightly bolder */
+  }
+  
+  /* --- Content Area --- */
+  .content {
+    flex: 1; /* Take remaining horizontal space */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Prevent content overflow */
+  }
+  
+  /* --- View & Filter Controls --- */
+  .view-controls {
+    padding: 10px 20px;
+    border-bottom: 1px solid #333;
+    background: #1a1a1a;
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .filter-controls {
+    padding: 10px 20px 5px 20px;
+    border-bottom: 1px solid #333;
+    background: #1c1c1c;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .filter-controls.hidden {
+    display: none; /* Hide filters when not in task view */
+  }
+  .filter-controls span {
+    font-size: 0.9em;
+    color: #aaa;
+    margin-right: 5px;
+  }
+  
+  /* --- Main View Area & Containers --- */
+  .main-view-area {
+    flex: 1; /* Take remaining vertical space */
+    overflow: hidden; /* Hide overflow, child elements handle scrolling */
+    position: relative;
+    display: flex; /* Use flex for child elements */
+    flex-direction: column; /* Stack children vertically */
+  }
+  .task-list {
+    overflow-y: auto; /* Allow task list to scroll */
+    padding: 20px;
+    flex-grow: 1; /* Allow task list to fill space */
+  }
+  .task-list.hidden {
+    display: none;
+  }
+  #org-chart-container {
+    height: 100%; /* Fill parent height */
+    width: 100%; /* Fill parent width */
+    border-top: 1px solid #333; /* Separator */
+    background: linear-gradient(to bottom, #141414 0%, #111 100%); /* Chart background gradient */
+    box-sizing: border-box; /* Include border in size */
+  }
+  #org-chart-container.hidden {
+    display: none;
+  }
+  
+  /* --- Vis Network Styling --- */
+  .vis-network {
+    background-color: #111 !important; /* Ensure dark background */
+    /* Optional: Add subtle dot pattern */
+    background-image: radial-gradient(#1a1a1a 1px, transparent 2px);
+    background-size: 30px 30px;
+  }
+  .vis-label {
+    color: #eee !important; /* Ensure labels are visible */
+  }
+  .vis-tooltip {
+    /* Style the hover tooltips */
+    background-color: #333 !important;
+    color: #eee !important;
+    border: 1px solid #555 !important;
+    border-radius: 4px !important;
+    padding: 5px !important;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.5) !important;
+  }
+  .vis-button {
+    /* Style navigation buttons */
+    background-color: #333 !important;
+    color: #eee !important;
+    border: 1px solid #555 !important;
+    box-shadow: none !important;
+    border-radius: 4px !important;
+  }
+  .vis-button:hover {
+    background-color: #444 !important;
+  }
+  /* Optional: Node pulse animation (apply via JS if needed) */
+  @keyframes pulseNode {
+    0% { box-shadow: 0 0 0 0 rgba(9, 159, 255, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(9, 159, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(9, 159, 255, 0); }
+  }
+  /* Example: Apply pulse to selected nodes */
+  /* .vis-network .vis-node.vis-selected { animation: pulseNode 1.5s infinite; } */
+  
+  /* --- Task Card Styling --- */
+  .task {
+    border: 1px solid #333;
+    border-radius: 8px; /* More rounded corners */
+    padding: 15px;
+    margin-bottom: 15px;
+    background: linear-gradient(to bottom, #222 0%, #1e1e1e 100%);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+    animation: fadeIn 0.4s ease-out forwards; /* Fade in effect */
+    opacity: 0; /* Start hidden for animation */
+  }
+  .task:hover {
+    transform: translateY(-2px); /* Lift effect on hover */
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4);
+  }
+  .task h3 {
+    margin: 0 0 12px 0;
+    color: #0af; /* Brighter blue heading */
+    border-bottom: 1px solid #333;
+    padding-bottom: 10px;
+    font-size: 1.1em;
+    font-weight: 600; /* Semi-bold */
+    letter-spacing: 0.5px;
+  }
+  .task p {
+    margin: 10px 0;
+    color: #bbb;
+    font-size: 0.95em;
+    line-height: 1.5;
+  }
+  .task p strong {
+    color: #eee; /* Brighter strong text */
+    font-weight: 600;
+  }
+  
+  /* --- Update Item Styling --- */
+  .general-task-update {
+    margin-top: 12px;
+    border-top: 1px dashed #444;
+    padding-top: 8px;
+  }
+  .general-task-update p.update-item,
+  .step-updates-list li.update-item {
+    margin: 4px 0 8px 0;
+    padding: 5px 8px;
+    background-color: rgba(200, 200, 100, 0.1); /* Yellowish tint for updates */
+    border-left: 3px solid #b0a000;
+    font-size: 0.9em;
+    color: #ccc;
+    line-height: 1.4;
+    list-style-type: none;
+    border-radius: 0 4px 4px 0; /* Slight rounding */
+  }
+  .general-task-update p.update-item {
+    margin-left: 0; /* No extra indent for general updates */
+  }
+  .general-task-update p.update-item strong,
+  .step-updates-list li.update-item strong {
+    color: #eee; /* Make timestamp slightly brighter */
+  }
+  .general-task-update-placeholder {
+    display: none; /* Hide placeholder used by JS */
+  }
+  
+  /* --- Task Steps Styling --- */
+  .task-steps-container {
+    margin-top: 12px;
+  }
+  .task-steps {
+    margin: 5px 0 12px 0;
+    padding-left: 20px; /* Indent for list numbers */
+    list-style-type: decimal; /* Use numbers */
+  }
+  .task-steps li {
+    margin-bottom: 20px; /* Increased spacing between steps */
+    color: #ccc;
+    font-size: 0.95em;
+    line-height: 1.5;
+    transition: background-color 0.2s ease;
+    padding: 5px 0;
+    border-radius: 4px;
+  }
+  .task-steps li:hover {
+    background-color: rgba(255, 255, 255, 0.03); /* Subtle hover background */
+  }
+  .step-description {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500; /* Slightly bolder step description */
+  }
+  /* Style for interruption steps */
+  .task-steps li.interruption-step {
+    border-left: 3px dashed #ff8c00; /* Orange dashed border */
+    padding-left: 8px; /* Indent content */
+    background-color: rgba(255, 140, 0, 0.05); /* Faint orange background */
+  }
+  .task-steps li.interruption-step > .step-description {
+    font-style: italic;
+    color: #ffae42; /* Lighter orange text */
+  }
+  .step-updates-list {
+    list-style: none;
+    padding-left: 15px; /* Indent updates under steps */
+    margin-top: 5px;
+  }
+  .step-updates-list li.update-item {
+    margin-bottom: 6px;
+  }
+  
+  /* --- Enhanced Button Styling --- */
+  .btn {
+    padding: 8px 12px; /* Standard button padding */
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85em; /* Slightly larger base button font */
+    font-weight: 500; /* Medium weight */
+    letter-spacing: 0.3px;
+    transition: all 0.2s ease;
+    text-transform: uppercase; /* Uppercase button text */
+    background-color: #444; /* Default background */
+    color: #ccc; /* Default text color */
+  }
+  .btn:hover {
+    background-color: #555;
+    transform: translateY(-1px); /* Slight lift on hover */
+  }
+  .btn:disabled {
+    background: #555 !important; /* Use important to override gradients */
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    opacity: 0.6; /* Dim disabled buttons */
+  }
+  
+  /* View Control Buttons */
+  .view-controls .btn {
+    border-radius: 6px;
+    padding: 8px 14px;
+  }
+  .view-controls .btn.active {
+    background: linear-gradient(to bottom, #09f 0%, #07d 100%); /* Active gradient */
+    color: #fff;
+    box-shadow: 0 2px 5px rgba(0, 140, 255, 0.4); /* Glow effect */
+    transform: translateY(-1px);
+  }
+  
+  /* Filter Control Buttons */
+  .filter-controls .btn {
+    font-size: 0.8em; /* Smaller filter buttons */
+    padding: 4px 8px;
+  }
+  .filter-controls .btn.active {
+    background-color: #07a; /* Specific active color for filters */
+    color: #fff;
+    font-weight: bold;
+  }
+  
+  /* Poll Button */
+  .btn.poll {
+    background: linear-gradient(to bottom, #07a 0%, #069 100%);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 6px;
+    margin-top: 15px; /* More space above poll button */
+    box-shadow: 0 2px 5px rgba(0, 100, 200, 0.3);
+    float: right; /* Keep it floated right */
+  }
+  .btn.poll:hover:not(:disabled) {
+    background: linear-gradient(to bottom, #09d 0%, #07b 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 7px rgba(0, 120, 220, 0.4);
+  }
+  /* Clearfix for floated poll button */
+  .task::after {
+    content: "";
+    display: table;
+    clear: both;
+  }
+  
+  /* --- Enhanced Status Pills --- */
+  .status-pill {
+    display: inline-block;
+    padding: 4px 10px;
+    font-size: 0.75em;
+    font-weight: bold;
+    border-radius: 20px; /* Fully rounded */
+    color: #fff;
+    letter-spacing: 0.5px;
+    margin-left: 10px;
+    vertical-align: middle;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    text-transform: uppercase;
+  }
+  .status-pill.pending { background: linear-gradient(to bottom, #d0c000 0%, #b0a000 100%); }
+  .status-pill.in_progress { background: linear-gradient(to bottom, #09d 0%, #07a 100%); }
+  .status-pill.complete { background: linear-gradient(to bottom, #2fb82f 0%, #1a931a 100%); } /* Brighter green */
+  .status-pill.stuck { background: linear-gradient(to bottom, #e56717 0%, #d35400 100%); }
+  .status-pill.error { background: linear-gradient(to bottom, #e04b3c 0%, #c0392b 100%); }
+  
+  /* --- Stylish Loading and Error Messages --- */
+  .message {
+    padding: 30px;
+    text-align: center;
+    color: #aaa;
+    font-size: 1.1em;
+    animation: fadeInMessage 0.5s ease; /* Fade in animation */
+  }
+  .error-message {
+    color: #f55;
+    font-weight: bold;
+    background-color: rgba(220, 53, 69, 0.1); /* Reddish background */
+    border-radius: 6px;
+    padding: 15px;
+    border-left: 4px solid #f55; /* Accent border */
+    animation: fadeInMessage 0.5s ease; /* Also animate error messages */
+  }
+  /* Loading dots animation */
+  .loading-dots:after {
+    content: '.';
+    animation: dots 1.5s steps(5, end) infinite;
+  }
+  @keyframes dots {
+    0%, 20% { content: '.'; }
+    40% { content: '..'; }
+    60% { content: '...'; }
+    80%, 100% { content: ''; } /* Changed to empty instead of back to . */
+  }
+  @keyframes fadeInMessage {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  /* --- WS Indicator --- */
+  #ws-indicator {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background-color: #f55; /* Default error state */
+    margin-left: 10px;
+    vertical-align: middle;
+    transition: background-color 0.5s ease;
+    border: 1px solid rgba(255,255,255,0.1); /* Subtle border */
+  }
+  #ws-indicator.connected {
+    background-color: #2ecc71; /* Green */
+    box-shadow: 0 0 5px #2ecc71; /* Glow effect */
+  }
+  #ws-indicator.connecting {
+    background-color: #f39c12; /* Orange */
+    animation: pulseOrange 1.5s infinite; /* Pulse animation */
+  }
+  #ws-indicator.error {
+    background-color: #e74c3c; /* Red */
+    box-shadow: 0 0 5px #e74c3c; /* Glow effect */
+  }
+  @keyframes pulseOrange {
+    0% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); }
+    70% { box-shadow: 0 0 0 6px rgba(243, 156, 18, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); }
+  }
+  
+  /* --- Animation Effects --- */
+  @keyframes slideInFromLeft {
+    0% { transform: translateX(-15px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  /* Sidebar li animation applied directly */
+  /* Task animation applied directly */
+  

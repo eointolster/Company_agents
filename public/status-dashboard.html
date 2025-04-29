@@ -1,0 +1,556 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Status Dashboard – Company Agents</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Basic Styling for the Status Dashboard */
+    body {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        margin: 0;
+    }
+    .status-container {
+        flex-grow: 1;
+        padding: 20px;
+        overflow-y: auto;
+    }
+    .status-grid {
+        display: grid;
+        /* Adjust grid columns as needed, e.g., repeat(auto-fill, minmax(200px, 1fr)) */
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 15px;
+        margin-top: 20px;
+    }
+    .employee-card {
+        background-color: #2a2a2a;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 15px;
+        position: relative; /* For absolute positioning of tooltips if needed */
+        transition: transform 0.2s ease-in-out;
+    }
+    .employee-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 8px rgba(0, 153, 255, 0.2);
+    }
+    .employee-card h3 {
+        margin: 0 0 10px 0;
+        font-size: 1em;
+        color: #eee;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .status-indicators {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 1.2em; /* Adjust size of indicators */
+    }
+
+    /* Placeholder styles for indicators - refine with actual logic */
+    .status-indicator {
+        display: inline-block;
+    }
+    .employee-status.online { color: #2ecc71; /* Green */ }
+    .employee-status.idle { color: #f39c12; /* Orange */ }
+    .employee-status.offline { color: #7f8c8d; /* Grey */ }
+
+    .agent-status.active { color: #2ecc71; /* Green */ }
+    .agent-status.idle { color: #f39c12; /* Orange */ }
+    .agent-status.unassigned { color: #7f8c8d; /* Grey */ }
+
+    /* Tooltip for pending tasks (simple example) */
+    .pending-tasks-tooltip {
+        display: none; /* Hidden by default */
+        position: absolute;
+        background-color: #111;
+        border: 1px solid #09f;
+        color: #eee;
+        padding: 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        z-index: 10;
+        bottom: 105%; /* Position above the card */
+        left: 10px;
+        width: calc(100% - 20px); /* Adjust width */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        white-space: normal; /* Allow wrapping */
+        max-height: 150px; /* Limit height */
+        overflow-y: auto; /* Add scroll if needed */
+    }
+    .employee-card:hover .pending-tasks-tooltip {
+        display: block; /* Show on hover */
+    }
+    .pending-tasks-tooltip ul {
+        margin: 0;
+        padding: 0 0 0 15px; /* Indent list */
+    }
+    .pending-tasks-tooltip li {
+        margin-bottom: 4px;
+    }
+
+  </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/admin.html" class="navbar-brand">Company Agents – Admin Dashboard</a>
+        <div class="navbar-links">
+          <span class="navbar-user" id="user-info">Loading...</span>
+          <a href="/manage-users.html">Manage Users</a>
+          <a href="/dashboard.html">Agent Activity</a>
+          <a href="/status-dashboard.html">Status Dashboard</a>
+          <a href="/task-table-dashboard.html">Task Table</a>
+          <span id="user-info"></span>
+          <span id="ws-indicator" title="WebSocket Connection Status"></span> <button class="logout-btn" id="logout-button">Logout</button>
+        </div>
+      </nav>
+
+  <div class="status-container">
+    <h2>Employee & Agent Status</h2>
+    <div class="status-grid" id="status-grid">
+        <p class="message loading-dots" id="loading-message">Loading status overview</p>
+        </div>
+  </div>
+
+  <script>
+    // ─── Globals ──────────────────────────────────────────────────────────
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = '/login.html';
+    
+    let statusWS = null;
+    let statusWsReconnectAttempts = 0;
+    const MAX_STATUS_WS_RECONNECT_ATTEMPTS = 5;
+    const STATUS_WS_RECONNECT_DELAY_MS   = 5000;
+    
+    // DOM Elements
+    const userInfoEl      = document.getElementById('user-info');
+    const logoutBtn       = document.getElementById('logout-button');
+    const wsIndicator     = document.getElementById('ws-indicator');
+    const statusGridEl    = document.getElementById('status-grid');
+    const loadingMsgEl    = document.getElementById('loading-message');
+    
+    // State
+    let employeeDataCache = {}; // Store basic employee info { id: { email, role, name, ... } }
+    let employeeStatus    = {}; // Store live status { id: { online: bool, idle: bool, agentWorkerId: number|null, agentStatus: 'active'|'idle'|'unassigned' } }
+    let taskCache         = {}; // Cache for pending tasks { employeeId: [task1, task2,...] }
+    let hoverTimeout = null; // Timeout for delaying task fetch on hover
+    const HOVER_DELAY_MS = 300; // Delay before fetching tasks on hover
+    
+    // ─── Utility Functions ────────────────────────────────────────────────
+    function decodeJwtPayload(tok){
+      try { return JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); }
+      catch(e){ console.error('JWT decode error',e); return null; }
+    }
+    
+    function escapeHtml(str){
+      if (str===null||str===undefined) return '';
+      return str.toString()
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+    
+    async function fetchJSON(url, opts={}){
+      opts.headers = { ...(opts.headers||{}), Authorization:`Bearer ${token}` };
+      const r = await fetch(url, opts);
+      if(!r.ok){
+        let msg;
+        try { msg = (await r.json()).error; } catch{ msg = `${r.status} ${r.statusText}`; }
+        const error = new Error(msg || 'Unknown API error');
+        error.status = r.status;
+        throw error;
+      }
+      if (r.status===204) return null;
+      const contentType = r.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+          try { return await r.json(); }
+          catch (e) { console.error('Failed to parse JSON response for URL:', url, e); throw new Error('Invalid JSON received from server.'); }
+      } else {
+          console.warn('API response not JSON for URL:', url);
+          return null;
+      }
+    }
+    
+    // ─── Initialization ───────────────────────────────────────────────────
+    const payload = decodeJwtPayload(token);
+    if (!payload || !(payload.role==='CEO'||payload.role==='PM')){
+        window.location.href = payload?.role==='EMP' ? '/employee.html' : '/login.html';
+    } else {
+      userInfoEl.textContent = `Logged in as ${escapeHtml(payload.email)} (${escapeHtml(payload.role)})`;
+      loadInitialStatus();
+      initStatusWS();
+    }
+    
+    logoutBtn.onclick = ()=>{
+      if (window.statusWS) window.statusWS.close();
+      localStorage.removeItem('token');
+      window.location.href='/login.html';
+    };
+    
+    // ─── Core Logic: Rendering and Data Loading ───────────────────────────
+    
+    async function loadInitialStatus() {
+        console.log("[Status] Loading initial status overview...");
+        if(loadingMsgEl) loadingMsgEl.style.display = 'block';
+        statusGridEl.innerHTML = '';
+    
+        try {
+            const overviewData = await fetchJSON('/api/admin/status-overview');
+            if (loadingMsgEl) loadingMsgEl.style.display = 'none';
+    
+            if (!overviewData || !Array.isArray(overviewData)) {
+                console.warn("[Status] Received empty or invalid overview data.");
+                statusGridEl.innerHTML = '<p class="message">Could not load status overview data.</p>';
+                return;
+            }
+    
+            employeeDataCache = {};
+            employeeStatus = {};
+            taskCache = {};
+    
+            overviewData.forEach(emp => {
+                employeeDataCache[emp.id] = {
+                    email: emp.email,
+                    role: emp.role,
+                    name: emp.name || emp.email
+                };
+                employeeStatus[emp.id] = {
+                    online: emp.isOnline || false,
+                    idle: emp.isIdle || false,
+                    agentWorkerId: emp.agentWorkerId !== undefined ? emp.agentWorkerId : null, // Ensure it handles 0 correctly if needed
+                    agentStatus: emp.agentStatus || (emp.agentWorkerId !== undefined && emp.agentWorkerId !== null ? 'idle' : 'unassigned')
+                };
+                statusGridEl.appendChild(createEmployeeCard(emp.id));
+            });
+    
+            console.log(`[Status] Initial overview loaded for ${overviewData.length} employees.`);
+    
+        } catch (error) {
+            console.error("[Status] Error loading initial status:", error);
+            if (loadingMsgEl) loadingMsgEl.style.display = 'none';
+            statusGridEl.innerHTML = `<p class="message error-message">Error loading status: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+    
+    function createEmployeeCard(employeeId) {
+        const card = document.createElement('div');
+        card.className = 'employee-card';
+        card.dataset.employeeId = employeeId;
+    
+        const empData = employeeDataCache[employeeId] || { email: `User ${employeeId}`, role: '?' };
+        const currentStatus = employeeStatus[employeeId] || { online: false, idle: false, agentStatus: 'unassigned', agentWorkerId: null };
+    
+        let empStatusClass = 'offline';
+        let empTitle = 'Offline';
+        if (currentStatus.online) {
+            empStatusClass = currentStatus.idle ? 'idle' : 'online';
+            empTitle = currentStatus.idle ? 'Idle' : 'Online';
+        }
+    
+        // *** START REVISED FIX for numeric worker ID ***
+        let agentStatusClass = 'unassigned';
+        let agentTitleText = 'Unassigned';
+        let agentWorkerInfo = ''; // Initialize worker info string
+        // Display worker ID if it exists (number or string)
+        if (currentStatus.agentWorkerId !== null && currentStatus.agentWorkerId !== undefined) {
+             agentStatusClass = currentStatus.agentStatus === 'active' ? 'active' : 'idle';
+             agentTitleText = currentStatus.agentStatus === 'active' ? 'Active' : 'Idle';
+             agentWorkerInfo = ` (W: ${currentStatus.agentWorkerId})`; // Display the ID directly
+        }
+        // *** END REVISED FIX ***
+
+        // Use the variables created in the fix
+        card.innerHTML = `
+            <h3>${escapeHtml(empData.name || empData.email)} (${escapeHtml(empData.role)})</h3>
+            <div class="status-indicators">
+                <span class="status-indicator employee-status ${empStatusClass}" title="Employee: ${empTitle}">⭐</span>
+                <span class="status-indicator agent-status ${agentStatusClass}" title="Agent: ${agentTitleText}${agentWorkerInfo}">■</span>
+            </div>
+            <div class="pending-tasks-tooltip" style="display: none;">
+                </div>
+        `;
+    
+        card.addEventListener('mouseenter', handleMouseEnter);
+        card.addEventListener('mouseleave', handleMouseLeave);
+    
+        return card;
+    }
+    
+    function handleMouseEnter(event) {
+        const card = event.currentTarget;
+        clearTimeout(hoverTimeout);
+        hoverTimeout = setTimeout(() => {
+            fetchAndShowTasks(card);
+        }, HOVER_DELAY_MS);
+    }
+    
+    function handleMouseLeave(event) {
+        clearTimeout(hoverTimeout);
+        const card = event.currentTarget;
+        const tooltip = card.querySelector('.pending-tasks-tooltip');
+        if (tooltip) tooltip.style.display = 'none';
+    }
+    
+    
+    async function fetchAndShowTasks(card) {
+        const employeeId = card.dataset.employeeId;
+        const tooltip = card.querySelector('.pending-tasks-tooltip');
+        if (!employeeId || !tooltip) return;
+    
+        tooltip.innerHTML = '<em>Loading tasks...</em>';
+        tooltip.style.display = 'block';
+    
+        if (taskCache[employeeId]) {
+            console.log(`[Status Hover] Using cached tasks for employee ${employeeId}`);
+            renderTooltipContent(tooltip, taskCache[employeeId]);
+            return;
+        }
+    
+        try {
+            console.log(`[Status Hover] Fetching pending tasks for employee ${employeeId}`);
+            const tasks = await fetchJSON(`/api/admin/employee/${employeeId}/pending-tasks`);
+            taskCache[employeeId] = tasks || [];
+            renderTooltipContent(tooltip, taskCache[employeeId]);
+        } catch (error) {
+            console.error(`[Status Hover] Error fetching pending tasks for ${employeeId}:`, error);
+            tooltip.innerHTML = `<em class="error-message" style="color:#f55;">Error loading tasks</em>`;
+            delete taskCache[employeeId];
+        }
+    }
+    
+    
+    function renderTooltipContent(tooltipElement, tasks) {
+        if (!tasks || tasks.length === 0) {
+            tooltipElement.innerHTML = '<em>No pending tasks.</em>';
+            return;
+        }
+    
+        let listHtml = '<strong>Pending Tasks:</strong><ul>';
+        tasks.slice(0, 5).forEach(task => {
+            const status = task.status || 'unknown';
+            const estimate = task.estimated_time_minutes;
+            let timeText = '';
+             if (estimate !== null && estimate !== undefined) {
+                 const minutes = parseInt(estimate, 10);
+                 if (!isNaN(minutes)) {
+                     if (minutes < 60) timeText = ` (${minutes}m)`;
+                     else timeText = ` (~${Math.round(minutes / 60)}h)`;
+                 }
+             }
+            listHtml += `<li>${escapeHtml(task.title)} (${escapeHtml(status)}${timeText})</li>`;
+        });
+        if (tasks.length > 5) {
+            listHtml += `<li><em>...and ${tasks.length - 5} more</em></li>`;
+        }
+        listHtml += '</ul>';
+        tooltipElement.innerHTML = listHtml;
+    }
+    
+    
+    function updateEmployeeCard(employeeId) {
+        const card = statusGridEl.querySelector(`.employee-card[data-employee-id="${employeeId}"]`);
+        if (!card) {
+            console.warn(`[Status Update] Card not found for employee ${employeeId}. Might need refresh.`);
+            return;
+        }
+    
+        const empData = employeeDataCache[employeeId];
+        const currentStatus = employeeStatus[employeeId];
+    
+        if (!empData || !currentStatus) {
+            console.warn(`[Status Update] Missing data/status cache for employee ${employeeId}. Cannot update card.`);
+            return;
+        }
+    
+        let empStatusClass = 'offline';
+        let empTitle = 'Offline';
+        if (currentStatus.online) {
+            empStatusClass = currentStatus.idle ? 'idle' : 'online';
+            empTitle = currentStatus.idle ? 'Idle' : 'Online';
+        }
+    
+        // *** START REVISED FIX for numeric worker ID *** (Apply same logic as createEmployeeCard)
+        let agentStatusClass = 'unassigned';
+        let agentTitleText = 'Unassigned';
+        let agentWorkerInfo = ''; // Initialize worker info string
+        // Display worker ID if it exists (number or string)
+        if (currentStatus.agentWorkerId !== null && currentStatus.agentWorkerId !== undefined) {
+             agentStatusClass = currentStatus.agentStatus === 'active' ? 'active' : 'idle';
+             agentTitleText = currentStatus.agentStatus === 'active' ? 'Active' : 'Idle';
+             agentWorkerInfo = ` (W: ${currentStatus.agentWorkerId})`; // Display the ID directly
+        }
+       // *** END REVISED FIX ***
+    
+        // Update card content using the fixed variables
+        card.innerHTML = `
+            <h3>${escapeHtml(empData.name || empData.email)} (${escapeHtml(empData.role)})</h3>
+            <div class="status-indicators">
+                <span class="status-indicator employee-status ${empStatusClass}" title="Employee: ${empTitle}">⭐</span>
+                <span class="status-indicator agent-status ${agentStatusClass}" title="Agent: ${agentTitleText}${agentWorkerInfo}">■</span>
+            </div>
+            <div class="pending-tasks-tooltip" style="display: none;">
+                </div>
+        `;
+    
+        // Invalidate task cache for this user as their status changed
+        delete taskCache[employeeId];
+    }
+    
+    // ─── WebSocket Logic ──────────────────────────────────────────────────
+    function setWsIndicator(status){
+      wsIndicator.className='';
+      if(status==='connected') wsIndicator.classList.add('connected');
+      else if(status==='connecting') wsIndicator.classList.add('connecting');
+      else if(status==='error') wsIndicator.classList.add('error');
+      else wsIndicator.classList.add('disconnected');
+      wsIndicator.title = `WebSocket Status: ${status}`;
+    }
+    
+    function initStatusWS(){
+      if (window.statusWS && (window.statusWS.readyState === WebSocket.OPEN || window.statusWS.readyState === WebSocket.CONNECTING)) {
+        console.log("[Status WS] Connection already open or opening."); return;
+      }
+      const proto = location.protocol==='https:'?'wss:':'ws:';
+      const url = `${proto}//${location.hostname}:3001`;
+      console.log(`[Status WS] Attempting connection to ${url}`);
+      setWsIndicator('connecting');
+      statusWS = new WebSocket(url); window.statusWS = statusWS;
+    
+      statusWS.onopen = ()=>{
+        console.log('[Status WS] Connection opened. Sending auth...');
+        statusWsReconnectAttempts = 0;
+        statusWS.send(JSON.stringify({type:'auth',token}));
+        setWsIndicator('connected');
+      };
+    
+      statusWS.onerror = e=>{
+        console.error('[Status WS] Error:', e);
+        setWsIndicator('error');
+      };
+    
+      statusWS.onclose = e=>{
+        console.log(`[Status WS] Connection closed. Code: ${e.code}, Clean: ${e.wasClean}`);
+        const previousStatusWS = window.statusWS;
+        statusWS = null; window.statusWS = null;
+        setWsIndicator(e.code === 1000 ? 'disconnected' : 'error');
+
+        if(e.code !== 1000 && e.code !== 1005 && previousStatusWS === window.statusWS) {
+            statusWsReconnectAttempts++;
+            if(statusWsReconnectAttempts <= MAX_STATUS_WS_RECONNECT_ATTEMPTS){
+                console.log(`[Status WS] Reconnecting attempt ${statusWsReconnectAttempts}/${MAX_STATUS_WS_RECONNECT_ATTEMPTS}...`);
+                setTimeout(initStatusWS, STATUS_WS_RECONNECT_DELAY_MS * Math.pow(2, statusWsReconnectAttempts - 1));
+            } else {
+                console.error('[Status WS] Max reconnect attempts reached.');
+                if (!document.hidden) {
+                    alert('Live status updates disconnected. Please refresh the page.');
+                }
+            }
+        } else {
+            statusWsReconnectAttempts = 0;
+        }
+      };
+    
+      statusWS.onmessage = e=>{
+        let msg; try{msg=JSON.parse(e.data);}catch{console.error('[Status WS] Bad JSON:',e.data);return;}
+        console.log('[Status WS] Received:', msg);
+    
+        if(msg.type==='auth_success'){ console.log('[Status WS] Auth successful.'); setWsIndicator('connected'); return; }
+        if(msg.type==='auth_failed'){ console.error('[Status WS] Auth failed:', msg.error); setWsIndicator('error'); alert(`WS auth failed: ${msg.error || 'Reason unknown'}`); if (statusWS) statusWS.close(1008, 'Auth Failed'); return; }
+    
+        const empId = msg.employeeId;
+        if (!empId) {
+            if (['employee_status', 'agent_assignment', 'agent_status', 'employee_idle_status', 'agent_idle_status'].includes(msg.type)) {
+                console.warn(`[Status WS] Received ${msg.type} message without employeeId. Ignoring.`);
+            }
+            return;
+        }
+    
+        if (!employeeStatus[empId]) {
+             console.warn(`[Status WS] Received update for unknown or uncached employee ${empId}. Initializing status.`);
+              employeeStatus[empId] = { online: false, idle: false, agentWorkerId: null, agentStatus: 'unassigned' };
+        }
+    
+        let statusChanged = false;
+    
+        switch (msg.type) {
+            case 'employee_status':
+                const newOnlineStatus = (msg.status === 'online');
+                if (employeeStatus[empId].online !== newOnlineStatus) {
+                     employeeStatus[empId].online = newOnlineStatus;
+                     employeeStatus[empId].idle = false;
+                     statusChanged = true;
+                }
+                break;
+            case 'employee_idle_status':
+                 if (employeeStatus[empId].idle !== msg.idle) {
+                     employeeStatus[empId].idle = msg.idle || false;
+                     statusChanged = true;
+                 }
+                 break;
+            case 'agent_assignment':
+                const newWorkerId = (msg.phase === 'assigned') ? (msg.workerId !== undefined ? msg.workerId : null) : null; // Handle workerId carefully
+                if (employeeStatus[empId].agentWorkerId !== newWorkerId) {
+                    employeeStatus[empId].agentWorkerId = newWorkerId;
+                    employeeStatus[empId].agentStatus = newWorkerId !== null ? 'idle' : 'unassigned';
+                    statusChanged = true;
+                }
+                break;
+            case 'agent_status':
+                 if (employeeStatus[empId].agentWorkerId === msg.workerId) { // Ensure agentWorkerId comparison is correct (number vs number)
+                     const newAgentStatus = (msg.status === 'busy') ? 'active' : 'idle';
+                     if (employeeStatus[empId].agentStatus !== newAgentStatus) {
+                         employeeStatus[empId].agentStatus = newAgentStatus;
+                         statusChanged = true;
+                     }
+                 } else {
+                     console.warn(`[Status WS] Received agent_status for worker ${msg.workerId} but employee ${empId} expects agent ${employeeStatus[empId].agentWorkerId}. Ignoring.`);
+                 }
+                 break;
+    
+            case 'task_update_received':
+            case 'task_status_updated':
+            case 'task_steps_saved':
+            case 'new_task_created':
+                 if (taskCache[empId]) {
+                     console.log(`[Status WS] Task change (${msg.type}) detected for employee ${empId}. Invalidating task cache.`);
+                     delete taskCache[empId];
+                     const card = statusGridEl.querySelector(`.employee-card[data-employee-id="${empId}"]`);
+                     const tooltip = card?.querySelector('.pending-tasks-tooltip');
+                     if (tooltip && tooltip.style.display !== 'none') {
+                         fetchAndShowTasks(card);
+                     }
+                 }
+                break;
+            case 'profile_updated':
+                 if (employeeDataCache[empId] && msg.user) {
+                     const oldName = employeeDataCache[empId].name;
+                     employeeDataCache[empId].email = msg.user.email || employeeDataCache[empId].email;
+                     employeeDataCache[empId].role = msg.user.role || employeeDataCache[empId].role;
+                     employeeDataCache[empId].name = `${msg.user.first_name || ''} ${msg.user.last_name || ''}`.trim() || msg.user.email;
+                     if (oldName !== employeeDataCache[empId].name) {
+                         const cardHeader = statusGridEl.querySelector(`.employee-card[data-employee-id="${empId}"] h3`);
+                         if (cardHeader) cardHeader.textContent = `${escapeHtml(employeeDataCache[empId].name)} (${escapeHtml(employeeDataCache[empId].role)})`;
+                     }
+                 }
+                break;
+            default:
+                console.log("[Status WS] Received unhandled message type:", msg.type);
+        }
+    
+        if (statusChanged) {
+            updateEmployeeCard(empId);
+        }
+    
+      }; // End onmessage
+    } // End initStatusWS
+    
+  </script>
+</body>
+</html>

@@ -1,0 +1,639 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Table - Company Agents</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Basic Styling for the Task Table Dashboard */
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+        }
+        .task-table-container {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .filter-controls {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+            display: flex; /* Use flexbox for alignment */
+            align-items: center; /* Vertically align items */
+            gap: 10px; /* Space between items */
+            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+        }
+        .filter-controls span {
+             font-weight: bold;
+             color: #ccc;
+             margin-right: 5px; /* Add space after the label */
+        }
+        /* Style filter buttons (reuse .btn styles from styles.css if possible) */
+        .filter-controls .btn {
+            padding: 5px 10px;
+            font-size: 0.9em;
+            background-color: #444;
+            color: #eee;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .filter-controls .btn.active {
+            background-color: #09f;
+            color: white;
+        }
+        .task-table-area {
+            flex-grow: 1;
+            overflow-x: auto; /* Allow horizontal scroll if table is wide */
+        }
+        #tasks-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        #tasks-table th, #tasks-table td {
+            border: 1px solid #333;
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top; /* Align content to the top */
+        }
+        #tasks-table th {
+            background-color: #2a2a2a;
+            color: #09f;
+            position: sticky; /* Make headers sticky */
+            top: 0; /* Stick to the top of the scrolling container */
+            z-index: 1; /* Ensure headers stay above scrolling content */
+        }
+        #tasks-table tr.employee-header td {
+            background-color: #1f1f1f;
+            font-weight: bold;
+            color: #eee;
+            padding-top: 15px; /* Add spacing above employee name */
+            /* Add data attribute for easier selection */
+        }
+        #tasks-table tr.task-row {
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out;
+        }
+         #tasks-table tr.task-row:hover {
+             background-color: #282828;
+         }
+         #tasks-table tr.task-row.changed { /* Style for recently updated row */
+            animation: highlight-row 1.5s ease-out;
+         }
+         @keyframes highlight-row {
+           from { background-color: #09f4; } /* Semi-transparent blue */
+           to { background-color: transparent; } /* Or initial background */
+         }
+        #tasks-table td.status-pill-cell {
+            text-align: center;
+            min-width: 100px; /* Give status some space */
+        }
+         #tasks-table td.time-estimate-cell {
+             text-align: right;
+             min-width: 80px; /* Give time estimate some space */
+             white-space: nowrap;
+         }
+        /* Styles for status pills (reuse from admin.html/styles.css if defined there) */
+        .status-pill {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            color: white;
+            text-transform: capitalize;
+        }
+        .status-pill.pending { background-color: #aaa; color: #333; }
+        .status-pill.in_progress { background-color: #07a; }
+        .status-pill.stuck { background-color: #d35400; }
+        .status-pill.complete { background-color: #27ae60; }
+        .status-pill.unknown { background-color: #555; }
+
+        /* Hidden row for steps */
+        #tasks-table tr.steps-row {
+             background-color: #1c1c1c; /* Slightly darker background */
+        }
+         #tasks-table tr.steps-row.hidden {
+             display: none;
+         }
+         #tasks-table tr.steps-row td {
+             padding: 15px 20px 15px 40px; /* Indent steps */
+             border-top: none; /* Avoid double border */
+         }
+         #tasks-table .steps-list {
+             list-style: decimal;
+             margin: 0;
+             padding-left: 20px;
+             font-size: 0.9em;
+             color: #ccc;
+         }
+         #tasks-table .steps-list li {
+             margin-bottom: 5px;
+             line-height: 1.4;
+         }
+
+        /* Navbar WS Indicator styles */
+        #ws-indicator { /* Copied from admin.html styles */
+            display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-left: 10px; vertical-align: middle;
+            background-color: #555; /* Default: Disconnected */ transition: background-color 0.3s ease;
+        }
+        #ws-indicator.connecting { background-color: #f39c12; /* Orange */ animation: pulse 1.5s infinite ease-in-out; }
+        #ws-indicator.connected { background-color: #2ecc71; /* Green */ }
+        #ws-indicator.error { background-color: #e74c3c; /* Red */ }
+        #ws-indicator.disconnected { background-color: #7f8c8d; /* Grey */ }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+      <a href="/" class="navbar-brand">Company Agents – Admin</a>
+      <div class="navbar-links">
+        <span class="navbar-user" id="user-info">Loading...</span>
+        <a href="/manage-users.html">Manage Users</a>
+        <a href="/dashboard.html">Agent Activity</a>
+        <a href="/status-dashboard.html">Status Dashboard</a>
+        <a href="/task-table-dashboard.html">Task Table</a>
+        <span id="ws-indicator" title="WebSocket Connection Status"></span>
+        <button class="logout-btn" id="logout-button">Logout</button>
+      </div>
+    </nav>
+
+    <div class="task-table-container">
+        <h2>Task Overview</h2>
+
+        <div class="filter-controls" id="filter-controls">
+            <span>Filter by Status:</span>
+            <button class="btn active" data-status="all">All</button>
+            <button class="btn" data-status="pending">Pending</button>
+            <button class="btn" data-status="in_progress">In Progress</button>
+            <button class="btn" data-status="stuck">Stuck</button>
+            <button class="btn" data-status="complete">Complete</button>
+        </div>
+
+        <div class="task-table-area" id="task-table-area">
+            <p class="message loading-dots" id="loading-message">Loading tasks</p>
+            <table id="tasks-table" style="display: none;"> <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th>Task Title</th>
+                        <th>Status</th>
+                        <th>Time Estimate</th>
+                    </tr>
+                </thead>
+                <tbody id="tasks-table-body">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // ─── Globals ──────────────────────────────────────────────────────────
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/login.html';
+
+        // WebSocket Globals
+        let taskTableWS = null;
+        let wsReconnectAttempts = 0;
+        const MAX_WS_RECONNECT_ATTEMPTS = 5;
+        const WS_RECONNECT_DELAY_MS     = 5000;
+
+        // DOM Elements
+        const userInfoEl        = document.getElementById('user-info');
+        const logoutBtn         = document.getElementById('logout-button');
+        const wsIndicator       = document.getElementById('ws-indicator'); // Get indicator
+        const filterControlsEl  = document.getElementById('filter-controls');
+        const taskTableAreaEl   = document.getElementById('task-table-area');
+        const tasksTableEl      = document.getElementById('tasks-table');
+        const tasksTableBodyEl  = document.getElementById('tasks-table-body');
+        const loadingMsgEl      = document.getElementById('loading-message');
+
+        // State
+        let currentTaskFilter = 'all'; // Default filter
+        let employeeDataCache = {}; // Simple cache {employeeId: name} for header updates
+
+        // ─── Utility Functions ────────────────────────────────────────────────
+        function decodeJwtPayload(tok){
+            try { return JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); }
+            catch(e){ console.error('JWT decode error',e); return null; }
+        }
+        function escapeHtml(str){
+            if (str===null||str===undefined) return '';
+            return str.toString()
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+        async function fetchJSON(url, opts={}){
+            opts.headers = { ...(opts.headers||{}), Authorization:`Bearer ${token}` };
+            const r = await fetch(url, opts);
+            if(!r.ok){
+              let msg;
+              try { msg = (await r.json()).error; } catch{ msg = `${r.status} ${r.statusText}`; }
+              const error = new Error(msg || 'Unknown API error');
+              error.status = r.status;
+              throw error;
+            }
+            if (r.status===204) return null;
+            const contentType = r.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                try { return await r.json(); }
+                catch (e) { console.error('Failed to parse JSON response for URL:', url, e); throw new Error('Invalid JSON received from server.'); }
+            } else {
+                console.warn('API response not JSON for URL:', url);
+                return null;
+            }
+        }
+
+        // Function to format minutes into hours and minutes
+        function formatTime(minutes) {
+            if (minutes === null || minutes === undefined || isNaN(parseInt(minutes, 10))) {
+                return '-';
+            }
+            const totalMinutes = parseInt(minutes, 10);
+            if (totalMinutes < 1) return '-'; // Or '0m' if preferred
+            if (totalMinutes < 60) {
+                return `${totalMinutes}m`;
+            } else {
+                const hours = Math.floor(totalMinutes / 60);
+                const remainingMinutes = totalMinutes % 60;
+                return `${hours}h${remainingMinutes > 0 ? ` ${remainingMinutes}m` : ''}`;
+            }
+        }
+
+
+        // ─── Initialization ───────────────────────────────────────────────────
+        const payload = decodeJwtPayload(token);
+        if (!payload || !(payload.role==='CEO'||payload.role==='PM')){
+            window.location.href = payload?.role==='EMP' ? '/employee.html' : '/login.html';
+        } else {
+          userInfoEl.textContent = `Logged in as ${escapeHtml(payload.email)} (${escapeHtml(payload.role)})`;
+          setupFilterListeners();
+          loadTasks(); // Initial load with default filter ('all')
+          initTaskTableWS(); // Initialize WebSocket AFTER initial load setup
+        }
+
+        logoutBtn.onclick = ()=>{
+          if (window.taskTableWS) window.taskTableWS.close(); // Close WS on logout
+          localStorage.removeItem('token');
+          window.location.href='/login.html';
+        };
+
+        // ─── Core Logic: Rendering and Data Loading ───────────────────────────
+
+        function setupFilterListeners() {
+            filterControlsEl.querySelectorAll('.btn').forEach(button => {
+                button.onclick = (e) => {
+                    const newFilter = e.target.dataset.status;
+                    if (newFilter !== currentTaskFilter) {
+                        currentTaskFilter = newFilter;
+                        // Update active class on buttons
+                        filterControlsEl.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+                        e.target.classList.add('active');
+                        // Reload tasks with the new filter
+                        loadTasks();
+                    }
+                };
+            });
+        }
+
+        async function loadTasks() {
+            console.log(`[TaskTable] Loading tasks with filter: ${currentTaskFilter}`);
+            tasksTableEl.style.display = 'none'; // Hide table while loading
+            tasksTableBodyEl.innerHTML = ''; // Clear existing rows
+            taskTableAreaEl.insertBefore(loadingMsgEl, tasksTableEl); // Ensure loading message is visible
+            loadingMsgEl.style.display = 'block';
+            loadingMsgEl.textContent = 'Loading tasks...';
+
+            try {
+                let apiUrl = '/api/admin/all-tasks'; // Assumes backend groups by employeeId
+                if (currentTaskFilter && currentTaskFilter !== 'all') {
+                    apiUrl += `?status=${currentTaskFilter}`;
+                }
+                const tasksGroupedByEmployee = await fetchJSON(apiUrl);
+
+                loadingMsgEl.style.display = 'none'; // Hide loading message
+
+                if (!tasksGroupedByEmployee || Object.keys(tasksGroupedByEmployee).length === 0) {
+                    // Clear potential old table and show message
+                    taskTableAreaEl.innerHTML = `<p class="message">No tasks found${currentTaskFilter !== 'all' ? ` with status '${currentTaskFilter}'` : ''}.</p>`;
+                    return;
+                }
+
+                // Ensure the table area only contains the table (remove potential previous messages if any)
+                if (!taskTableAreaEl.contains(tasksTableEl)) {
+                     taskTableAreaEl.innerHTML = ''; // Clear completely if table wasn't there
+                     taskTableAreaEl.appendChild(tasksTableEl);
+                }
+
+                renderTaskTable(tasksGroupedByEmployee);
+                tasksTableEl.style.display = ''; // Show table
+
+            } catch (error) {
+                console.error("[TaskTable] Error loading tasks:", error);
+                loadingMsgEl.style.display = 'none';
+                taskTableAreaEl.innerHTML = `<p class="message error-message">Error loading tasks: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
+        function renderTaskTable(groupedData) {
+            tasksTableBodyEl.innerHTML = ''; // Clear previous content
+            employeeDataCache = {}; // Reset cache
+
+            // Sort employee IDs based on employee name/email for consistent order
+            const employeeIds = Object.keys(groupedData).sort((a, b) => {
+                const nameA = groupedData[a].employee.name || groupedData[a].employee.email || '';
+                const nameB = groupedData[b].employee.name || groupedData[b].employee.email || '';
+                return nameA.localeCompare(nameB);
+            });
+
+            if (employeeIds.length === 0) {
+                tasksTableBodyEl.innerHTML = `<tr><td colspan="4" class="message">No tasks found for the selected filter.</td></tr>`;
+                return;
+            }
+
+            employeeIds.forEach(employeeId => {
+                const employeeInfo = groupedData[employeeId].employee;
+                const tasks = groupedData[employeeId].tasks;
+
+                if (!employeeInfo || !tasks || tasks.length === 0) return; // Skip if employee has no tasks for this filter
+
+                employeeDataCache[employeeId] = employeeInfo.name; // Cache name for WS updates
+
+                // Add Employee Header Row
+                const headerRow = tasksTableBodyEl.insertRow();
+                headerRow.className = 'employee-header';
+                headerRow.dataset.employeeId = employeeId; // Add employee ID for WS updates
+                const headerCell = headerRow.insertCell();
+                headerCell.colSpan = 4; // Span across all columns
+                headerCell.textContent = escapeHtml(employeeInfo.name || employeeInfo.email);
+
+                // Add Task Rows for this employee
+                tasks.forEach(task => {
+                    const taskRow = tasksTableBodyEl.insertRow();
+                    taskRow.className = 'task-row';
+                    taskRow.dataset.taskId = task.task_id;
+
+                    // Employee cell (keep blank, header indicates employee)
+                    taskRow.insertCell().textContent = '';
+
+                    // Task Title
+                    taskRow.insertCell().textContent = escapeHtml(task.title);
+
+                    // Status Pill
+                    const statusCell = taskRow.insertCell();
+                    statusCell.className = 'status-pill-cell';
+                    updateStatusPill(statusCell, task.status); // Use helper
+
+                    // Time Estimate
+                    const timeCell = taskRow.insertCell();
+                    timeCell.className = 'time-estimate-cell';
+                    timeCell.textContent = formatTime(task.estimated_time_minutes); // Use formatter
+
+
+                    // Add Hidden Steps Row
+                    const stepsRow = tasksTableBodyEl.insertRow();
+                    stepsRow.className = 'steps-row hidden'; // Initially hidden
+                    stepsRow.dataset.stepsFor = task.task_id; // Link to parent task row
+                    const stepsCell = stepsRow.insertCell();
+                    stepsCell.colSpan = 4;
+                    updateStepsCell(stepsCell, task.steps); // Use helper
+
+                    // Add click listener to the task row to toggle the steps row
+                    taskRow.onclick = () => {
+                         // Find the steps row associated with this task row
+                         const associatedStepsRow = tasksTableBodyEl.querySelector(`tr.steps-row[data-steps-for="${task.task_id}"]`);
+                         if (associatedStepsRow) {
+                             associatedStepsRow.classList.toggle('hidden');
+                         } else {
+                              console.warn(`Could not find steps row for task ${task.task_id}`);
+                         }
+                    };
+                });
+            });
+        }
+
+        // Helper to update/create status pill
+        function updateStatusPill(cellElement, status) {
+            cellElement.innerHTML = ''; // Clear existing
+            const statusPill = document.createElement('span');
+            const safeStatus = (status || 'unknown').toLowerCase().replace(/ /g, '_');
+            statusPill.className = `status-pill ${safeStatus}`;
+            statusPill.textContent = escapeHtml(status || 'unknown');
+            cellElement.appendChild(statusPill);
+        }
+
+        // Helper to update steps cell content
+        function updateStepsCell(cellElement, steps) {
+             if (steps && steps.length > 0) {
+                 let stepsHtml = '<ol class="steps-list">';
+                 steps.forEach(step => {
+                     // Assuming step object has 'description' and 'status'
+                     stepsHtml += `<li>${escapeHtml(step.description || 'N/A')} (${escapeHtml(step.status || 'pending')})</li>`;
+                 });
+                 stepsHtml += '</ol>';
+                 cellElement.innerHTML = stepsHtml;
+             } else {
+                 cellElement.innerHTML = '<em>No steps defined for this task.</em>';
+             }
+        }
+
+        // Helper to temporarily highlight a row
+        function highlightRow(rowElement) {
+            if (!rowElement) return;
+            rowElement.classList.remove('changed'); // Remove first to reset animation if triggered quickly
+            // Force reflow/repaint before adding class again
+            void rowElement.offsetWidth;
+            rowElement.classList.add('changed');
+             // Optional: Remove class after animation finishes (CSS animation duration is 1.5s)
+             setTimeout(() => {
+                 if (rowElement) rowElement.classList.remove('changed');
+             }, 1500);
+        }
+
+
+        // ─── WebSocket Logic ──────────────────────────────────────────────────
+        function setWsIndicator(status){
+          wsIndicator.className=''; // Clear previous classes
+          if(status==='connected') wsIndicator.classList.add('connected');
+          else if(status==='connecting') wsIndicator.classList.add('connecting');
+          else if(status==='error') wsIndicator.classList.add('error');
+          else wsIndicator.classList.add('disconnected'); // Default for closed/other
+          wsIndicator.title = `WebSocket Status: ${status}`;
+        }
+
+        function initTaskTableWS(){
+          if (window.taskTableWS && (window.taskTableWS.readyState === WebSocket.OPEN || window.taskTableWS.readyState === WebSocket.CONNECTING)) {
+            console.log("[TaskTable WS] Connection already open or opening."); return;
+          }
+          const proto = location.protocol==='https:'?'wss:':'ws:';
+          const url = `${proto}//${location.hostname}:3001`; // Ensure port matches server
+          console.log(`[TaskTable WS] Attempting connection to ${url}`);
+          setWsIndicator('connecting');
+          taskTableWS = new WebSocket(url); window.taskTableWS = taskTableWS; // Assign to global scope
+
+          taskTableWS.onopen = ()=>{
+            console.log('[TaskTable WS] Connection opened. Sending auth...');
+            wsReconnectAttempts = 0;
+            taskTableWS.send(JSON.stringify({type:'auth',token}));
+            setWsIndicator('connected');
+          };
+
+          taskTableWS.onerror = e=>{
+            console.error('[TaskTable WS] Error:', e);
+            setWsIndicator('error');
+          };
+
+          taskTableWS.onclose = e=>{
+            console.log(`[TaskTable WS] Connection closed. Code: ${e.code}, Clean: ${e.wasClean}`);
+            const previousWS = window.taskTableWS; // Store ref before clearing
+            taskTableWS = null; window.taskTableWS = null;
+            setWsIndicator(e.code === 1000 ? 'disconnected' : 'error');
+
+            // Attempt to reconnect if closure was not clean or intentional and WS wasn't manually closed
+            if(e.code !== 1000 && e.code !== 1005 && previousWS === window.taskTableWS) { // Check if it's the same WS instance trying to reconnect
+                wsReconnectAttempts++;
+                if(wsReconnectAttempts <= MAX_WS_RECONNECT_ATTEMPTS){
+                    console.log(`[TaskTable WS] Reconnecting attempt ${wsReconnectAttempts}/${MAX_WS_RECONNECT_ATTEMPTS}...`);
+                    const delay = WS_RECONNECT_DELAY_MS * Math.pow(2, wsReconnectAttempts - 1); // Exponential backoff
+                    setTimeout(initTaskTableWS, delay);
+                } else {
+                    console.error('[TaskTable WS] Max reconnect attempts reached.');
+                    if (!document.hidden) { // Only alert if tab is active
+                        alert('Live Task Table updates disconnected. Please refresh the page.');
+                    }
+                }
+            } else {
+                wsReconnectAttempts = 0; // Reset attempts on clean closure or if a new WS was initiated
+            }
+          };
+
+          taskTableWS.onmessage = e=>{
+            let msg; try{msg=JSON.parse(e.data);}catch{console.error('[TaskTable WS] Bad JSON:',e.data);return;}
+            console.log('[TaskTable WS] Received:', msg);
+
+            // --- Authentication Response ---
+            if(msg.type==='auth_success'){ console.log('[TaskTable WS] Auth successful.'); setWsIndicator('connected'); return; }
+            if(msg.type==='auth_failed'){ console.error('[TaskTable WS] Auth failed:', msg.error); setWsIndicator('error'); alert(`WS auth failed: ${msg.error || 'Reason unknown'}`); if (taskTableWS) taskTableWS.close(1008, 'Auth Failed'); return; }
+
+            const taskId = msg.taskId || msg.task_id || msg.data?.taskId; // Get task ID from various possible locations
+            const employeeId = msg.employeeId || msg.data?.employeeId;
+
+            // --- Handle Real-time Updates ---
+            switch (msg.type) {
+                case 'new_task_created':
+                    console.log(`[TaskTable WS] New task detected (${msg.task_id}). Reloading table.`);
+                    // Simplest approach: reload data if the new task *might* match the current filter
+                    // (More complex: check filter and insert row dynamically)
+                    if (currentTaskFilter === 'all' || currentTaskFilter === 'pending') {
+                         loadTasks(); // Reload the whole table
+                    }
+                    break;
+
+                case 'task_status_updated':
+                    if (taskId && msg.status) {
+                         console.log(`[TaskTable WS] Status update for ${taskId} to ${msg.status}`);
+                         const taskRow = tasksTableBodyEl.querySelector(`tr.task-row[data-task-id="${taskId}"]`);
+                         if (taskRow) {
+                             const statusCell = taskRow.querySelector('td.status-pill-cell');
+                             if (statusCell) {
+                                 updateStatusPill(statusCell, msg.status);
+                                 highlightRow(taskRow);
+                             }
+                             // Optionally remove row if status no longer matches filter
+                             if (currentTaskFilter !== 'all' && msg.status.toLowerCase() !== currentTaskFilter) {
+                                  console.log(`[TaskTable WS] Removing row ${taskId} due to filter mismatch.`);
+                                  const stepsRow = tasksTableBodyEl.querySelector(`tr.steps-row[data-steps-for="${taskId}"]`);
+                                  if (taskRow) taskRow.remove();
+                                  if (stepsRow) stepsRow.remove();
+                                  // Check if employee header should be removed
+                                  const remainingRows = tasksTableBodyEl.querySelectorAll(`tr.task-row`); // Check all remaining
+                                  let hasVisibleTasksForEmployee = false;
+                                  const headerRow = tasksTableBodyEl.querySelector(`tr.employee-header[data-employee-id="${employeeId}"]`);
+                                  if (headerRow) {
+                                      let nextSibling = headerRow.nextElementSibling;
+                                      while(nextSibling && !nextSibling.classList.contains('employee-header')) {
+                                          if(nextSibling.classList.contains('task-row')) {
+                                               hasVisibleTasksForEmployee = true;
+                                               break;
+                                          }
+                                          nextSibling = nextSibling.nextElementSibling;
+                                      }
+                                      if (!hasVisibleTasksForEmployee) {
+                                           console.log(`[TaskTable WS] Removing empty header for employee ${employeeId}`);
+                                           headerRow.remove();
+                                      }
+                                  }
+                             }
+                         }
+                    }
+                    break;
+
+                case 'task_steps_saved': // Includes steps and estimate
+                     if (taskId && msg.steps) {
+                        console.log(`[TaskTable WS] Steps saved for ${taskId}`);
+                        const taskRow = tasksTableBodyEl.querySelector(`tr.task-row[data-task-id="${taskId}"]`);
+                        const stepsRow = tasksTableBodyEl.querySelector(`tr.steps-row[data-steps-for="${taskId}"]`);
+                        if (taskRow && stepsRow) {
+                             const stepsCell = stepsRow.querySelector('td');
+                             if (stepsCell) updateStepsCell(stepsCell, msg.steps);
+                             // Update status pill as well, as steps saved implies status change
+                             const statusCell = taskRow.querySelector('td.status-pill-cell');
+                             if (statusCell && msg.status) updateStatusPill(statusCell, msg.status);
+                              // Update estimate if provided
+                              const timeCell = taskRow.querySelector('td.time-estimate-cell');
+                              if(timeCell && msg.estimate !== undefined) {
+                                  timeCell.textContent = formatTime(msg.estimate);
+                              }
+                             highlightRow(taskRow);
+                        }
+                    }
+                    break;
+
+                case 'task_update_received':
+                     // Decide how to indicate an update - maybe just highlight the row?
+                     if (taskId) {
+                        console.log(`[TaskTable WS] Received update for task ${taskId}`);
+                        const taskRow = tasksTableBodyEl.querySelector(`tr.task-row[data-task-id="${taskId}"]`);
+                        if (taskRow) highlightRow(taskRow);
+                        // Could potentially update a "Last Updated" column if added
+                     }
+                    break;
+
+                 case 'profile_updated':
+                    // If an employee's details change (like name), update relevant header row
+                    if (msg.user && msg.user.id) {
+                         const userId = msg.user.id;
+                         const newName = `${msg.user.first_name || ''} ${msg.user.last_name || ''}`.trim() || msg.user.email;
+                         // Check if name actually changed compared to cache
+                         if (employeeDataCache[userId] && employeeDataCache[userId] !== newName) {
+                              console.log(`[TaskTable WS] Employee ${userId} name changed. Reloading table.`);
+                              // Simplest way to ensure header is correct is to reload
+                              loadTasks();
+                         } else if (!employeeDataCache[userId]) {
+                              // User might have been added or not present in initial load, reload just in case
+                              loadTasks();
+                         }
+                    }
+                    break;
+
+                // Ignore message types not relevant to this dashboard
+                default:
+                     // console.log("[TaskTable WS] Ignoring unhandled message type:", msg.type);
+                     break;
+            }
+          }; // End onmessage
+
+        } // End initTaskTableWS
+
+    </script>
+</body>
+</html>

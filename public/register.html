@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Register Company - Company Agents</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; background: #111; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 90vh; }
+    .container { background: #222; padding: 30px 40px; border-radius: 8px; width: 350px; /* Slightly wider for new fields */ box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+    h1 { text-align: center; color: #09f; margin-bottom: 15px; font-size: 1.5em; }
+    h2 { text-align: center; color: #aaa; font-size: 0.9em; margin-top: 0; margin-bottom: 25px; font-weight: normal;}
+    label { display: block; margin-bottom: 5px; color: #ccc; font-size: 0.9em; }
+    input[type="text"], input[type="email"], input[type="password"] { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #444; border-radius: 4px; background: #333; color: #eee; box-sizing: border-box; }
+    button { width: 100%; padding: 12px; background: #09f; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background 0.2s; margin-top: 10px; /* Add margin */ }
+    button:hover:not(:disabled) { background: #07d; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    .error { color: #f55; margin-top: 15px; text-align: center; font-size: 0.9em; min-height: 1.2em;}
+    .links { margin-top: 20px; text-align: center; font-size: 0.9em; }
+    .links a { color: #0af; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+    .spinner { display: inline-block; border: 2px solid #555; border-radius: 50%; border-top-color: #eee; width: 12px; height: 12px; animation: spin 1s ease-in-out infinite; margin-right: 5px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Register Company</h1>
+    <h2>Create the first Admin (CEO) account</h2>
+    <form id="register-form">
+      <div>
+        <label for="company_name">Company Name:</label>
+        <input type="text" id="company_name" name="company_name" required>
+      </div>
+      <div>
+        <label for="first_name">Your First Name:</label>
+        <input type="text" id="first_name" name="first_name" required>
+      </div>
+       <div>
+        <label for="last_name">Your Last Name:</label>
+        <input type="text" id="last_name" name="last_name" required>
+      </div>
+      <div>
+        <label for="email">Your Admin Email:</label>
+        <input type="email" id="email" name="email" required>
+      </div>
+      <div>
+        <label for="password">Your Admin Password:</label>
+        <input type="password" id="password" name="password" required minlength="6">
+      </div>
+      <button type="submit" id="register-button">Register Company & Admin</button>
+        <div id="error-message" class="error"></div>
+    </form>
+     <div class="links">
+        Already have an account? <a href="/login.html">Login here</a>
+     </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('register-form');
+    const registerButton = document.getElementById('register-button');
+    const errorMessage = document.getElementById('error-message');
+
+    // --- Helper to decode JWT payload (basic) ---
+    function decodeJwtPayload(token) {
+        try { const payloadBase64 = token.split('.')[1]; const decodedJson = atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/')); return JSON.parse(decodedJson); } catch (error) { console.error('Failed to decode JWT:', error); return null; }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      errorMessage.textContent = '';
+      registerButton.disabled = true;
+      registerButton.innerHTML = '<span class="spinner"></span> Registering...';
+
+      // *** FIX: Get values from all fields ***
+      const company_name = form.company_name.value.trim();
+      const first_name = form.first_name.value.trim(); // Get first name
+      const last_name = form.last_name.value.trim();   // Get last name
+      const email = form.email.value.trim();
+      const password = form.password.value;
+
+      // *** FIX: Basic validation includes names ***
+      if (!company_name || !first_name || !last_name || !email || !password) {
+        errorMessage.textContent = 'All fields are required.';
+        registerButton.disabled = false;
+        registerButton.textContent = 'Register Company & Admin';
+        return;
+      }
+       if (password.length < 6) {
+        errorMessage.textContent = 'Password must be at least 6 characters.';
+        registerButton.disabled = false;
+        registerButton.textContent = 'Register Company & Admin';
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // *** FIX: Send all fields in body ***
+          body: JSON.stringify({ company_name, first_name, last_name, email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.status === 201) { // Registration successful
+          const token = data.token;
+          localStorage.setItem('token', token);
+
+          // Decode token and redirect based on role (should always be CEO here)
+          const payload = decodeJwtPayload(token);
+          if (payload && (payload.role === 'CEO' || payload.role === 'PM')) {
+              console.log('Redirecting new Admin to dashboard...');
+              window.location.href = '/admin.html'; // Redirect new admin to dashboard
+          } else {
+              // Should not happen with current backend logic, but handle defensively
+              errorMessage.textContent = 'Registration succeeded, but role assignment failed. Redirecting to login.';
+              console.error('Unexpected role after registration:', payload?.role);
+              setTimeout(() => { window.location.href = '/login.html'; }, 3000);
+          }
+
+        } else {
+          errorMessage.textContent = data.error || 'Registration failed. Please try again.';
+        }
+      } catch (error) {
+        console.error('Registration error:', error);
+        errorMessage.textContent = 'An error occurred during registration. Please check the console.';
+      } finally {
+          registerButton.disabled = false;
+          registerButton.textContent = 'Register Company & Admin';
+      }
+    });
+  </script>
+</body>
+</html>
